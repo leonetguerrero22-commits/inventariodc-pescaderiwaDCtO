@@ -1,0 +1,1 @@
+# inventariodc-pescaderiwaDCtO
