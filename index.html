@@ -2535,31 +2535,50 @@ function renderVentas(){
   } else {
     keys.forEach(function(k){
       var reg = S.ventas[k];
-      var tv = reg.totalVentas||0;
-      var tg = reg.totalGastos||0;
+      var tv  = reg.totalVentas||0;
+      var tg  = reg.totalGastos||0;
       var util = tv - tg;
+      var utilColor = util>=0?'#1E5631':'#B71C1C';
+      var vl  = reg.ventas||{};
+      var gl  = reg.gastos||{};
+      var tasD= reg.tasas||{usd:4200,ves:0.001};
+
       h += '<div class="hist-day">';
+      /* Cabecera — fecha y utilidad */
       h += '<div class="hist-day-hdr" onclick="this.nextElementSibling.classList.toggle(\'open\')">';
-      h += '<span>📅 '+fmtFecha(k)+'</span>';
-      h += '<span style="color:'+(util>=0?'#a5d6a7':'#ef9a9a')+'">'+fmtCOP(util)+'</span>';
+      h += '<div><span style="font-weight:700">📅 '+fmtFecha(k)+'</span>';
+      if(reg.creadoPor) h += '<div style="font-size:10px;color:#aaa;margin-top:1px">'+reg.creadoPor+'</div>';
       h += '</div>';
+      h += '<div style="text-align:right"><div style="font-weight:700;color:'+utilColor+'">'+fmtCOP(util)+'</div><div style="font-size:10px;color:#aaa">utilidad</div></div>';
+      h += '</div>';
+
+      /* Cuerpo desplegable — cuadre de caja del día */
       h += '<div class="hist-day-body">';
-      h += '<div class="hist-stat"><span>💰 Total Ventas</span><span style="color:#1E5631;font-weight:700">'+fmtCOP(tv)+'</span></div>';
-      h += '<div class="hist-stat"><span>📊 Total Gastos</span><span style="color:#B71C1C;font-weight:700">'+fmtCOP(tg)+'</span></div>';
-      h += '<div class="hist-stat"><span>💹 Utilidad</span><span style="color:'+(util>=0?'#1F4E79':'#B71C1C')+';font-weight:700">'+fmtCOP(util)+'</span></div>';
-      /* Desglose ventas */
-      if(reg.ventas){
-        var vl = reg.ventas;
-        var tasD = reg.tasas||{usd:4200,ves:0.001};
-        if(vl.ef_cop)  h += '<div class="hist-stat"><span>💴 Efectivo COP</span><span>'+fmtCOP(vl.ef_cop)+'</span></div>';
-        if(vl.ef_usd)  h += '<div class="hist-stat"><span>💵 Efectivo USD</span><span>USD '+Number(vl.ef_usd).toFixed(2)+' = '+fmtCOP(vl.ef_usd*tasD.usd)+'</span></div>';
-        if(vl.ef_ves)  h += '<div class="hist-stat"><span>🇻🇪 Bolívares</span><span>Bs '+Number(vl.ef_ves).toLocaleString()+' = '+fmtCOP(vl.ef_ves*tasD.ves)+'</span></div>';
-        if(vl.nequi)   h += '<div class="hist-stat"><span>📱 Nequi/Daviplata</span><span>'+fmtCOP(vl.nequi)+'</span></div>';
-        if(vl.bancol)  h += '<div class="hist-stat"><span>🏦 Bancolombia</span><span>'+fmtCOP(vl.bancol)+'</span></div>';
-        if(vl.zelle)   h += '<div class="hist-stat"><span>💱 Zelle</span><span>USD '+Number(vl.zelle).toFixed(2)+' = '+fmtCOP(vl.zelle*tasD.usd)+'</span></div>';
-        if(vl.otros)   h += '<div class="hist-stat"><span>🏛️ Otros bancos</span><span>'+fmtCOP(vl.otros)+'</span></div>';
-      }
-      if(reg.notas) h += '<div class="hist-stat"><span>📝 Notas</span><span style="color:#555;font-style:italic">'+reg.notas+'</span></div>';
+
+      /* Ingresos */
+      h += '<div style="font-size:10px;font-weight:700;color:#1E5631;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">💰 Ingresos</div>';
+      if(vl.ef_cop)  h += '<div class="hist-stat"><span>💴 Efectivo COP</span><span style="color:#1E5631">+'+fmtCOP(vl.ef_cop)+'</span></div>';
+      if(vl.ef_usd)  h += '<div class="hist-stat"><span>💵 USD</span><span style="color:#1E5631">+'+fmtCOP(vl.ef_usd*tasD.usd)+'<span style="font-size:10px;color:#aaa"> (USD '+Number(vl.ef_usd).toFixed(2)+')</span></span></div>';
+      if(vl.ef_ves)  h += '<div class="hist-stat"><span>🇻🇪 Bolívares</span><span style="color:#1E5631">+'+fmtCOP(vl.ef_ves*tasD.ves)+'<span style="font-size:10px;color:#aaa"> (Bs '+Number(vl.ef_ves).toLocaleString()+')</span></span></div>';
+      if(vl.nequi)   h += '<div class="hist-stat"><span>📱 Nequi/Daviplata</span><span style="color:#1E5631">+'+fmtCOP(vl.nequi)+'</span></div>';
+      if(vl.bancol)  h += '<div class="hist-stat"><span>🏦 Bancolombia</span><span style="color:#1E5631">+'+fmtCOP(vl.bancol)+'</span></div>';
+      if(vl.zelle)   h += '<div class="hist-stat"><span>💱 Zelle</span><span style="color:#1E5631">+'+fmtCOP(vl.zelle*tasD.usd)+'<span style="font-size:10px;color:#aaa"> (USD '+Number(vl.zelle).toFixed(2)+')</span></span></div>';
+      if(vl.otros)   h += '<div class="hist-stat"><span>🏛️ Otros</span><span style="color:#1E5631">+'+fmtCOP(vl.otros)+'</span></div>';
+      h += '<div class="hist-stat" style="border-top:1px solid #e8f5e9;margin-top:4px;padding-top:4px"><span style="font-weight:700">TOTAL INGRESOS</span><span style="font-weight:700;color:#1E5631">'+fmtCOP(tv)+'</span></div>';
+
+      /* Egresos */
+      h += '<div style="font-size:10px;font-weight:700;color:#B71C1C;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 4px">📊 Egresos</div>';
+      var gasL=[['🥩 Insumos',gl.insumos],['🍹 Bebidas',gl.bebidas],['📦 Empaques',gl.empaques],['👷 Nómina',gl.nomina],['🚗 Domicilios',gl.domicilios],['💡 Servicios',gl.servicios],['🧹 Aseo',gl.aseo],['📢 Publicidad',gl.publicidad],['🔧 Mant.',gl.mant],['💰 Otros',gl.otros]];
+      gasL.forEach(function(g){ if(g[1]) h += '<div class="hist-stat"><span>'+g[0]+'</span><span style="color:#B71C1C">-'+fmtCOP(g[1])+'</span></div>'; });
+      h += '<div class="hist-stat" style="border-top:1px solid #ffebee;margin-top:4px;padding-top:4px"><span style="font-weight:700">TOTAL EGRESOS</span><span style="font-weight:700;color:#B71C1C">-'+fmtCOP(tg)+'</span></div>';
+
+      /* Resultado */
+      h += '<div style="background:'+(util>=0?'#f0f8f4':'#fff5f5')+';border-radius:8px;padding:10px;margin-top:8px;display:flex;justify-content:space-between;align-items:center">';
+      h += '<span style="font-weight:700;font-size:13px;color:'+utilColor+'">💹 UTILIDAD NETA</span>';
+      h += '<span style="font-weight:700;font-size:15px;color:'+utilColor+'">'+fmtCOP(util)+'</span>';
+      h += '</div>';
+
+      if(reg.notas) h += '<div style="margin-top:8px;font-size:11px;color:#888;font-style:italic">📝 '+reg.notas+'</div>';
       h += '</div></div>';
     });
   }
@@ -2648,41 +2667,95 @@ function calcResumenPeriodo(){
   });
 
   var util = tot.totalVentas - tot.totalGastos;
+  var margen = tot.totalVentas > 0 ? Math.round((util/tot.totalVentas)*100) : 0;
   var etiqueta = {semana:'Esta semana',semana_ant:'Semana pasada',mes:'Este mes',custom:'Período seleccionado'}[_periodoActual]||'';
   var subtitulo = desdeKey === hastaKey ? desdeKey : desdeKey+' → '+hastaKey;
 
-  var r = '<div style="font-size:11px;color:#888;margin-bottom:10px">'+etiqueta+' · '+subtitulo+' · <strong>'+tot.dias+' día'+(tot.dias!==1?'s':'')+'</strong></div>';
-
-  /* KPIs período */
-  r += '<div class="kpi-grid" style="margin-bottom:12px">';
-  r += '<div class="kpi-box"><div class="kpi-val" style="color:#1E5631;font-size:18px">'+fmtCOP(tot.totalVentas)+'</div><div class="kpi-lbl">TOTAL VENTAS</div></div>';
-  r += '<div class="kpi-box"><div class="kpi-val" style="color:#B71C1C;font-size:18px">'+fmtCOP(tot.totalGastos)+'</div><div class="kpi-lbl">TOTAL GASTOS</div></div>';
-  r += '<div class="kpi-box" style="grid-column:span 2"><div class="kpi-val" style="color:'+(util>=0?'#1F4E79':'#B71C1C')+';font-size:18px">'+fmtCOP(util)+'</div><div class="kpi-lbl">UTILIDAD DEL PERÍODO</div></div>';
-  r += '</div>';
-
-  /* Desglose ingresos por forma de pago */
-  r += '<div style="font-size:11px;font-weight:700;color:#1F4E79;margin:10px 0 6px;text-transform:uppercase;letter-spacing:.5px">💵 Ingresos por Forma de Pago</div>';
-  r += '<div class="cierre-resumen">';
-  if(tot.ef_cop)   r += '<div class="cierre-resumen-row"><span>💴 Efectivo COP</span><span style="font-weight:700">'+fmtCOP(tot.ef_cop)+'</span></div>';
-  if(tot.ef_usd)   r += '<div class="cierre-resumen-row"><span>💵 Efectivo USD</span><span style="font-weight:700">USD '+tot.ef_usd.toFixed(2)+' <span style="color:#888;font-size:10px">= '+fmtCOP(tot.ef_usd_cop)+'</span></span></div>';
-  if(tot.ef_ves)   r += '<div class="cierre-resumen-row"><span>🇻🇪 Bolívares</span><span style="font-weight:700">Bs '+Math.round(tot.ef_ves).toLocaleString('es-CO')+' <span style="color:#888;font-size:10px">= '+fmtCOP(tot.ef_ves_cop)+'</span></span></div>';
-  if(tot.nequi)    r += '<div class="cierre-resumen-row"><span>📱 Nequi / Daviplata</span><span style="font-weight:700">'+fmtCOP(tot.nequi)+'</span></div>';
-  if(tot.bancol)   r += '<div class="cierre-resumen-row"><span>🏦 Bancolombia</span><span style="font-weight:700">'+fmtCOP(tot.bancol)+'</span></div>';
-  if(tot.zelle)    r += '<div class="cierre-resumen-row"><span>💱 Zelle</span><span style="font-weight:700">USD '+tot.zelle.toFixed(2)+' <span style="color:#888;font-size:10px">= '+fmtCOP(tot.zelle_cop)+'</span></span></div>';
-  if(tot.otros)    r += '<div class="cierre-resumen-row"><span>🏛️ Otros bancos</span><span style="font-weight:700">'+fmtCOP(tot.otros)+'</span></div>';
-  r += '<div class="cierre-resumen-row" style="border-top:2px solid #e0d8cc;margin-top:6px;padding-top:6px"><span style="font-weight:700;color:#1E5631">TOTAL VENTAS</span><span style="font-weight:700;color:#1E5631">'+fmtCOP(tot.totalVentas)+'</span></div>';
-  r += '</div>';
-
-  /* Desglose gastos */
-  r += '<div style="font-size:11px;font-weight:700;color:#B71C1C;margin:10px 0 6px;text-transform:uppercase;letter-spacing:.5px">📊 Desglose de Gastos</div>';
-  r += '<div class="cierre-resumen">';
-  var gs=[['🥩 Insumos',tot.g_insumos],['🍹 Bebidas',tot.g_bebidas],['📦 Empaques',tot.g_empaques],['👷 Nómina',tot.g_nomina],['🚗 Domicilios',tot.g_domicilios],['💡 Servicios',tot.g_servicios],['🧹 Aseo',tot.g_aseo],['📢 Publicidad',tot.g_publicidad],['🔧 Mantenimiento',tot.g_mant],['💰 Otros',tot.g_otros]];
-  gs.forEach(function(g){ if(g[1]) r += '<div class="cierre-resumen-row"><span>'+g[0]+'</span><span style="font-weight:700;color:#B71C1C">'+fmtCOP(g[1])+'</span></div>'; });
-  r += '<div class="cierre-resumen-row" style="border-top:2px solid #e0d8cc;margin-top:6px;padding-top:6px"><span style="font-weight:700;color:#B71C1C">TOTAL GASTOS</span><span style="font-weight:700;color:#B71C1C">'+fmtCOP(tot.totalGastos)+'</span></div>';
-  r += '</div>';
-
   if(!tot.dias){
-    r = '<div class="empty"><div class="empty-ico">📭</div><div class="empty-txt">Sin registros en este período</div></div>';
+    var el2 = document.getElementById('resumen-periodo-content');
+    if(el2) el2.innerHTML = '<div class="empty"><div class="empty-ico">📭</div><div class="empty-txt">Sin registros en este período</div></div>';
+    return;
+  }
+
+  var r = '';
+  r += '<div style="font-size:11px;color:#888;margin-bottom:12px">'+etiqueta+' · '+subtitulo+' · <strong>'+tot.dias+' día'+(tot.dias!==1?'s':'')+'</strong></div>';
+
+  /* ── CUADRE DE CAJA ── */
+  r += '<div style="background:#fff;border-radius:16px;border:1px solid #e5e5e5;overflow:hidden;margin-bottom:12px">';
+
+  /* Encabezado */
+  r += '<div style="background:#1F4E79;padding:12px 16px;color:#fff">';
+  r += '<div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:.8;text-transform:uppercase">💼 Cuadre de Caja</div>';
+  r += '<div style="font-size:10px;opacity:.6;margin-top:2px">'+subtitulo+'</div>';
+  r += '</div>';
+
+  /* Ingresos por forma de pago */
+  r += '<div style="padding:12px 16px;border-bottom:1px solid #f0f0f0">';
+  r += '<div style="font-size:11px;font-weight:700;color:#1E5631;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">💰 INGRESOS</div>';
+  var pagos = [
+    ['💴 Efectivo COP',    tot.ef_cop,     null,         null],
+    ['💵 Efectivo USD',    tot.ef_usd_cop, tot.ef_usd,   'USD'],
+    ['🇻🇪 Bolívares',      tot.ef_ves_cop, tot.ef_ves,   'Bs'],
+    ['📱 Nequi/Daviplata', tot.nequi,      null,         null],
+    ['🏦 Bancolombia',     tot.bancol,     null,         null],
+    ['💱 Zelle',           tot.zelle_cop,  tot.zelle,    'USD'],
+    ['🏛️ Otros bancos',    tot.otros,      null,         null],
+  ];
+  pagos.forEach(function(p){
+    if(!p[1]&&!p[2]) return;
+    r += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:13px">';
+    r += '<span style="color:#555">'+p[0]+'</span>';
+    r += '<div style="text-align:right"><span style="font-weight:600;color:#1E5631">+'+fmtCOP(p[1])+'</span>';
+    if(p[2]) r += '<div style="font-size:10px;color:#aaa">'+p[3]+' '+Number(p[2]).toLocaleString('es-CO',{minimumFractionDigits:2,maximumFractionDigits:2})+'</div>';
+    r += '</div></div>';
+  });
+  /* Subtotal ingresos */
+  r += '<div style="display:flex;justify-content:space-between;align-items:center;border-top:2px solid #e8f5e9;margin-top:8px;padding-top:8px">';
+  r += '<span style="font-weight:700;font-size:14px;color:#1E5631">TOTAL INGRESOS</span>';
+  r += '<span style="font-weight:700;font-size:16px;color:#1E5631">'+fmtCOP(tot.totalVentas)+'</span>';
+  r += '</div></div>';
+
+  /* Gastos como deducciones */
+  r += '<div style="padding:12px 16px;border-bottom:1px solid #f0f0f0">';
+  r += '<div style="font-size:11px;font-weight:700;color:#B71C1C;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📊 EGRESOS (Gastos Operativos)</div>';
+  var gs=[['🥩 Insumos',tot.g_insumos],['🍹 Bebidas/Barra',tot.g_bebidas],['📦 Empaques',tot.g_empaques],['👷 Nómina',tot.g_nomina],['🚗 Domicilios',tot.g_domicilios],['💡 Servicios',tot.g_servicios],['🧹 Aseo',tot.g_aseo],['📢 Publicidad',tot.g_publicidad],['🔧 Mantenimiento',tot.g_mant],['💰 Otros',tot.g_otros]];
+  gs.forEach(function(g){
+    if(!g[1]) return;
+    r += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:13px">';
+    r += '<span style="color:#555">'+g[0]+'</span>';
+    r += '<span style="font-weight:600;color:#B71C1C">-'+fmtCOP(g[1])+'</span>';
+    r += '</div>';
+  });
+  /* Subtotal gastos */
+  r += '<div style="display:flex;justify-content:space-between;align-items:center;border-top:2px solid #ffebee;margin-top:8px;padding-top:8px">';
+  r += '<span style="font-weight:700;font-size:14px;color:#B71C1C">TOTAL EGRESOS</span>';
+  r += '<span style="font-weight:700;font-size:16px;color:#B71C1C">-'+fmtCOP(tot.totalGastos)+'</span>';
+  r += '</div></div>';
+
+  /* Resultado neto — la línea más importante */
+  var utilColor = util >= 0 ? '#1E5631' : '#B71C1C';
+  var utilBg    = util >= 0 ? '#f0f8f4' : '#fff5f5';
+  r += '<div style="padding:14px 16px;background:'+utilBg+'">';
+  r += '<div style="display:flex;justify-content:space-between;align-items:center">';
+  r += '<div><div style="font-size:11px;font-weight:700;color:'+utilColor+';text-transform:uppercase;letter-spacing:.5px">💹 UTILIDAD NETA</div>';
+  r += '<div style="font-size:10px;color:#aaa;margin-top:2px">Ingresos − Egresos</div></div>';
+  r += '<div style="text-align:right"><div style="font-size:22px;font-weight:700;color:'+utilColor+'">'+(util>=0?'':'')+fmtCOP(util)+'</div>';
+  if(tot.totalVentas > 0){
+    r += '<div style="font-size:11px;color:'+utilColor+';font-weight:600;margin-top:2px">Margen: '+margen+'%</div>';
+  }
+  r += '</div></div>';
+  if(tot.totalVentas === 0 && tot.totalGastos > 0){
+    r += '<div style="margin-top:10px;padding:8px 10px;background:#fff3e0;border-radius:8px;font-size:11px;color:#E65100">⚠️ Tienes gastos registrados pero aún no hay ventas en este período. Registra el cierre del día para ver el cuadre completo.</div>';
+  }
+  r += '</div></div>';
+
+  /* Promedio diario si hay más de un día */
+  if(tot.dias > 1){
+    r += '<div style="background:#f9f7f4;border-radius:12px;padding:10px 14px;margin-top:8px;font-size:12px;color:#888;text-align:center">';
+    r += '📈 Promedio diario — ';
+    r += 'Ingresos: <strong style="color:#1E5631">'+fmtCOP(Math.round(tot.totalVentas/tot.dias))+'</strong> · ';
+    r += 'Egresos: <strong style="color:#B71C1C">'+fmtCOP(Math.round(tot.totalGastos/tot.dias))+'</strong>';
+    r += '</div>';
   }
 
   var el = document.getElementById('resumen-periodo-content');
