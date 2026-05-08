@@ -1508,45 +1508,107 @@ function renderCierre(){
   if(ch.manana)h+='<div style="background:#C6EFCE;border-radius:10px;padding:8px 12px;font-size:12px;color:#1E5631;font-weight:600;margin-top:8px">Turno manana cerrado por '+ch.manana.usuario+' '+ch.manana.hora+'</div>';
   if(ch.tarde)h+='<div style="background:#BDD7EE;border-radius:10px;padding:8px 12px;font-size:12px;color:#1F4E79;font-weight:600;margin-top:6px">Turno tarde cerrado por '+ch.tarde.usuario+' '+ch.tarde.hora+'</div>';
   h+='</div>';
-  h+='<div class="cierre-card"><div class="cierre-title" style="color:#E65100">Cierre Turno Manana</div>';
+  h+='<div class="cierre-card"><div class="cierre-title" style="color:#E65100">Cierre Turno Mañana</div>';
   h+='<div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:8px">Solo anota los productos con movimiento. Deja en blanco los que no se usaron.</div>';
+  h+='<div style="position:relative;margin-bottom:10px"><span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none">🔍</span>';
+  h+='<input type="text" id="srch-man" placeholder="Buscar producto..." oninput="filtrarTurno(\'man\')" ';
+  h+='style="width:100%;padding:9px 10px 9px 32px;border:1px solid #ddd;border-radius:10px;font-size:13px;font-family:inherit;box-sizing:border-box;background:var(--color-background-secondary,#f9f9f9)"></div>';
+  h+='<div id="lista-man">';
   h+=_buildTurnoForm('man',prod);
-  h+='<button class="btn-cierre" data-turno="manana" onclick="guardarTurno(this.dataset.turno)" style="background:#E65100;margin-top:10px">Guardar Turno Manana</button></div>';
+  h+='</div>';
+  h+='<button class="btn-cierre" data-turno="manana" onclick="guardarTurno(this.dataset.turno)" style="background:#E65100;margin-top:10px">Guardar Turno Mañana</button></div>';
+
   h+='<div class="cierre-card"><div class="cierre-title" style="color:#1F4E79">Cierre Turno Tarde</div>';
   h+='<div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:8px">Anota los productos del turno tarde. El sistema acumula ambos turnos.</div>';
+  h+='<div style="position:relative;margin-bottom:10px"><span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none">🔍</span>';
+  h+='<input type="text" id="srch-tar" placeholder="Buscar producto..." oninput="filtrarTurno(\'tar\')" ';
+  h+='style="width:100%;padding:9px 10px 9px 32px;border:1px solid #ddd;border-radius:10px;font-size:13px;font-family:inherit;box-sizing:border-box;background:var(--color-background-secondary,#f9f9f9)"></div>';
+  h+='<div id="lista-tar">';
   h+=_buildTurnoForm('tar',prod);
+  h+='</div>';
   h+='<button class="btn-cierre verde" data-turno="tarde" onclick="guardarTurno(this.dataset.turno)" style="margin-top:10px">Guardar Turno Tarde</button></div>';
+
   h+='<div class="cierre-card"><div class="cierre-title" style="color:#6A1B9A">Conteo Semanal'+(esDomingo?' — DOMINGO (Recomendado)':'')+'</div>';
-  h+='<div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:10px">Cuenta fisicamente y anota lo que hay. El sistema calcula diferencias y ajusta el inventario.</div>';
+  h+='<div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:8px">Cuenta fisicamente y anota lo que hay. El sistema calcula diferencias y ajusta el inventario.</div>';
+  h+='<div style="position:relative;margin-bottom:10px"><span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none">🔍</span>';
+  h+='<input type="text" id="srch-cnt" placeholder="Buscar producto..." oninput="filtrarConteo()" ';
+  h+='style="width:100%;padding:9px 10px 9px 32px;border:1px solid #ddd;border-radius:10px;font-size:13px;font-family:inherit;box-sizing:border-box;background:var(--color-background-secondary,#f9f9f9)"></div>';
+  h+='<div id="lista-cnt">';
   prod.forEach(function(p){
     var stk=p.stock||0;
-    h+='<div class="cierre-row"><span class="cierre-label">'+p.nombre+'<br><span style="font-size:10px;color:var(--color-text-tertiary)">'+p.unidad+' Sistema: <b>'+stk+'</b></span></span>';
+    h+='<div class="cierre-row" data-nombre="'+p.nombre.toLowerCase()+'"><span class="cierre-label">'+p.nombre+'<br><span style="font-size:10px;color:var(--color-text-tertiary)">'+p.unidad+' Sistema: <b>'+stk+'</b></span></span>';
     h+='<div style="display:flex;align-items:center;gap:6px"><input class="cierre-inp" id="cnt-'+p.id+'" type="number" min="0" step="0.01" placeholder="Cont.">';
     h+='<span id="cnt-dif-'+p.id+'" style="min-width:44px;text-align:right;font-size:11px;font-weight:600"></span></div></div>';
   });
+  h+='</div>';
   h+='<button class="btn-cierre" onclick="calcDiferencias()" style="background:#6A1B9A;margin-top:10px">Ver diferencias</button>';
   h+='<button class="btn-cierre" onclick="guardarConteoSemanal()" style="background:#4A148C;margin-top:6px">Aplicar conteo al inventario</button>';
   h+='</div></div>';
   el.innerHTML=h;
 }
+
 function _buildTurnoForm(pref,prod){
-  var activos=prod.filter(function(p){return (p.stock||0)>0||(p.entrada||0)>0;});
-  var inactivos=prod.filter(function(p){return (p.stock||0)===0&&(p.entrada||0)===0;});
   var h='';
-  activos.forEach(function(p){
-    h+='<div class="cierre-row"><span class="cierre-label">'+p.nombre+'<br><span style="font-size:10px;color:var(--color-text-tertiary)">'+p.unidad+' Stock:'+(p.stock||0)+'</span></span>';
-    h+='<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end"><input class="cierre-inp" id="'+pref+'-e-'+p.id+'" type="number" placeholder="Ent" min="0" step="0.01"><input class="cierre-inp" id="'+pref+'-s-'+p.id+'" type="number" placeholder="Sal" min="0" step="0.01"></div></div>';
+  prod.forEach(function(p){
+    var activo=(p.stock||0)>0||(p.entrada||0)>0;
+    h+='<div class="cierre-row" data-nombre="'+p.nombre.toLowerCase()+'" style="'+(activo?'':'opacity:.5')+'">';
+    h+='<span class="cierre-label">'+p.nombre+'<br><span style="font-size:10px;color:var(--color-text-tertiary)">'+p.unidad+' Stock:'+(p.stock||0)+'</span></span>';
+    h+='<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end">';
+    h+='<input class="cierre-inp" id="'+pref+'-e-'+p.id+'" type="number" placeholder="Ent" min="0" step="0.01">';
+    h+='<input class="cierre-inp" id="'+pref+'-s-'+p.id+'" type="number" placeholder="Sal" min="0" step="0.01">';
+    h+='</div></div>';
   });
-  if(inactivos.length>0){
-    h+='<details style="margin-top:8px"><summary style="font-size:11px;color:var(--color-text-tertiary);cursor:pointer;padding:6px 0">+ Ver '+inactivos.length+' productos sin movimiento</summary>';
-    inactivos.forEach(function(p){
-      h+='<div class="cierre-row"><span class="cierre-label">'+p.nombre+'</span>';
-      h+='<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end"><input class="cierre-inp" id="'+pref+'-e-'+p.id+'" type="number" placeholder="Ent" min="0" step="0.01"><input class="cierre-inp" id="'+pref+'-s-'+p.id+'" type="number" placeholder="Sal" min="0" step="0.01"></div></div>';
-    });
-    h+='</details>';
-  }
   return h;
 }
+function filtrarTurno(pref){
+  var q = (document.getElementById('srch-'+pref)||{}).value||'';
+  var term = q.toLowerCase().trim();
+  var lista = document.getElementById('lista-'+pref);
+  if(!lista) return;
+  var filas = lista.querySelectorAll('.cierre-row');
+  var encontrados = 0;
+  filas.forEach(function(fila){
+    var nombre = (fila.dataset.nombre||'');
+    var visible = !term || nombre.indexOf(term) !== -1;
+    fila.style.display = visible ? '' : 'none';
+    if(visible) encontrados++;
+  });
+  /* Mostrar mensaje si no hay resultados */
+  var noRes = lista.querySelector('.turno-no-results');
+  if(!noRes){
+    noRes = document.createElement('div');
+    noRes.className = 'turno-no-results';
+    noRes.style.cssText = 'text-align:center;padding:16px;color:#aaa;font-size:13px;display:none';
+    noRes.textContent = '🔍 Sin resultados';
+    lista.appendChild(noRes);
+  }
+  noRes.style.display = term && encontrados===0 ? 'block' : 'none';
+}
+
+function filtrarConteo(){
+  var q = (document.getElementById('srch-cnt')||{}).value||'';
+  var term = q.toLowerCase().trim();
+  var lista = document.getElementById('lista-cnt');
+  if(!lista) return;
+  var filas = lista.querySelectorAll('.cierre-row');
+  var encontrados = 0;
+  filas.forEach(function(fila){
+    var nombre = (fila.dataset.nombre||'');
+    var visible = !term || nombre.indexOf(term) !== -1;
+    fila.style.display = visible ? '' : 'none';
+    if(visible) encontrados++;
+  });
+  var noRes = lista.querySelector('.cnt-no-results');
+  if(!noRes){
+    noRes = document.createElement('div');
+    noRes.className = 'cnt-no-results';
+    noRes.style.cssText = 'text-align:center;padding:16px;color:#aaa;font-size:13px;display:none';
+    noRes.textContent = '🔍 Sin resultados';
+    lista.appendChild(noRes);
+  }
+  noRes.style.display = term && encontrados===0 ? 'block' : 'none';
+}
+
 function guardarTurno(turno){
   var pref=turno==='manana'?'man':'tar';
   var fecha=window._fechaCierreOp||hoy(),key=fecha.replace(/-/g,'_'),sp={},hasData=false;
