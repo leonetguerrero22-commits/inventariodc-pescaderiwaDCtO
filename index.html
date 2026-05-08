@@ -888,6 +888,25 @@ function subscribeAll(){
     updateBadges();
   });
 
+  /* Insumos */
+  firebase.database().ref('inventario/insumos').on('value', function(snap){
+    if(snap.exists()){
+      var raw = snap.val();
+      var vals = Array.isArray(raw) ? raw : Object.values(raw);
+      S.insumos = vals.filter(Boolean).map(function(i){
+        i.cant  = i.cant  !== undefined ? i.cant  : 0;
+        i.costo = i.costo !== undefined ? i.costo : 0;
+        i.min   = i.min   !== undefined ? i.min   : 0;
+        i.unidad= i.unidad || 'Un';
+        return i;
+      });
+    } else {
+      S.insumos = JSON.parse(JSON.stringify(DEF_INS));
+    }
+    if(currentTab === 'dashboard') renderDash();
+    if(currentTab === 'viveres' && typeof renderViveres === 'function') renderViveres();
+  });
+
   /* Bitácora */
   firebase.database().ref('inventario/bitacora').on('value', function(snap){
     var raw = snap.exists() ? snap.val() : {};
