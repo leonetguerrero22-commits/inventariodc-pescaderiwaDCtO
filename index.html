@@ -337,7 +337,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--negro);color:var(--negro)
         <button class="pin-key" onclick="pk('1')">1</button><button class="pin-key" onclick="pk('2')">2</button><button class="pin-key" onclick="pk('3')">3</button>
         <button class="pin-key" onclick="pk('4')">4</button><button class="pin-key" onclick="pk('5')">5</button><button class="pin-key" onclick="pk('6')">6</button>
         <button class="pin-key" onclick="pk('7')">7</button><button class="pin-key" onclick="pk('8')">8</button><button class="pin-key" onclick="pk('9')">9</button>
-        <button class="pin-key del" onclick="pd()">⌫</button><button class="pin-key" onclick="pk('0')">0</button><button class="pin-key enter" onclick="pe()">OK</button>
+        <button class="pin-key del" onclick="pk('del')">⌫</button><button class="pin-key" onclick="pk('0')">0</button><button class="pin-key enter" onclick="if(_pin.length===4)doLogin(_pin)">OK</button>
       </div>
       <div class="login-err" id="login-err"></div>
     </div>
@@ -490,7 +490,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--negro);color:var(--negro)
 <div class="overlay" id="modal-merma">
   <div class="modal">
     <div class="modal-hdr">
-      <div class="modal-title">⚠️ Registrar Pérdida / Merma</div>
+      <div class="modal-title" id="modal-merma-titulo">⚠️ Registrar Pérdida / Merma</div>
       <button class="modal-x" onclick="closeModal('modal-merma')">✕</button>
     </div>
     <div class="field-col"><div class="flabel">Tipo</div>
@@ -500,11 +500,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--negro);color:var(--negro)
       </select>
     </div>
     <div class="field-col" style="margin-top:10px"><div class="flabel">Item afectado</div>
-      <select class="fselect" id="m-item"></select>
+      <select class="fselect" id="m-item" onchange="if(typeof calcMermaPerdida==='function')calcMermaPerdida()"></select>
     </div>
     <div class="field-row" style="margin-top:10px">
       <div class="field-col"><div class="flabel">Cantidad perdida</div>
-        <input class="finput yellow" type="number" min="0.1" step="0.1" id="m-cant" value="1" placeholder="0"></div>
+        <input class="finput yellow" type="number" min="0.1" step="0.1" id="m-cant" value="1" placeholder="0" oninput="if(typeof calcMermaPerdida==='function')calcMermaPerdida()"></div>
       <div class="field-col"><div class="flabel">Motivo</div>
         <select class="fselect" id="m-motivo">
           <option value="dañado">🟠 Dañado</option>
@@ -521,7 +521,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--negro);color:var(--negro)
       <span class="clabel">💸 Pérdida estimada</span>
       <span class="cval" id="m-perdida-val" style="color:var(--rojo-m)">$0.00</span>
     </div>
-    <button class="btn-primary" style="background:var(--ambar);color:#fff" onclick="guardarMerma()">⚠️ Registrar Pérdida</button>
+    <button id="btn-guardar-merma" class="btn-primary" style="background:var(--ambar);color:#fff" onclick="guardarMerma()">⚠️ Registrar Pérdida</button>
   </div>
 </div>
 
@@ -2031,44 +2031,44 @@ function renderLoginUsers(){
 
 /* renderDash: see appended block */
 function renderDash(){
-  var p = S.productos;
+  var p   = S.productos;
   var ins = S.insumos;
   var mermas = S.mermas||[];
-  var hoy = new Date().toDateString();
-  var mHoy = mermas.filter(function(m){return new Date(m.ts).toDateString()===hoy;});
-  var perdida = mHoy.reduce(function(s,m){return s+(m.perdidaTotal||0);},0);
-  var bajos = p.filter(function(x){return stProd(x)==='reponer';}).length;
-  var totalProd = p.length;
-  var ingresos = p.reduce(function(s,x){return s+((x.salida||0)*(x.precio||0));},0);
-  var vendidos = p.reduce(function(s,x){return s+(x.salida||0);},0);
-  var stockOk = p.filter(function(x){return stProd(x)==='ok';}).length;
-  
+  var hoyStr = new Date().toDateString();
+  var mHoy   = mermas.filter(function(m){ return new Date(m.ts).toDateString()===hoyStr; });
+  var perdida = mHoy.reduce(function(s,m){ return s+(m.perdidaTotal||0); }, 0);
+
+  var bajosProd = p.filter(function(x){ return typeof stProd==='function' && stProd(x)==='reponer'; }).length;
+  var stockOk   = p.filter(function(x){ return typeof stProd==='function' && stProd(x)==='ok'; }).length;
+  var ingresos  = p.reduce(function(s,x){ return s+((x.salida||0)*(x.precio||0)); }, 0);
+  var vendidos  = p.reduce(function(s,x){ return s+(x.salida||0); }, 0);
+  var valorIns  = ins.reduce(function(s,i){ return s+(i.cant||0)*(i.costo||0); }, 0);
+
+  /* Insumos con stock bajo */
+  var bajosIns = ins.filter(function(i){ return typeof stIns==='function' && stIns(i)==='bajo'; }).length;
+
   var fechaEl = document.getElementById('fecha-hoy');
-  if(fechaEl) fechaEl.textContent = new Date().toLocaleDateString('es-VE',{weekday:'long',day:'numeric',month:'long'});
-  
-  var stats = {
-    'INSUMOS': ins.length,
-    'BAJO STOCK': bajos,
-    'VALOR INSUMOS': fmt$(ins.reduce(function(s,i){return s+(i.cant||0)*(i.costo||0);},0)),
-    'STOCK OK': stockOk,
-    'PRODUCTOS': totalProd,
-    'REPONER': bajos,
-    'INGRESO EST.': fmt$(ingresos),
-    'VENDIDOS': vendidos,
-    'MERMAS HOY': mHoy.length,
-    'PERDIDA HOY': fmt$(perdida)
-  };
-  
-  var cards = document.querySelectorAll('.stat-card');
-  cards.forEach(function(card){
-    var lbl = card.querySelector('.stat-label');
-    var val = card.querySelector('.stat-val');
-    if(lbl && val && stats[lbl.textContent.trim()]!==undefined){
-      val.textContent = stats[lbl.textContent.trim()];
-    }
-  });
-  
+  if(fechaEl) fechaEl.textContent = new Date().toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long'});
+
+  /* Actualizar KPIs por ID */
+  function set(id, val){
+    var el = document.getElementById(id);
+    if(el) el.textContent = val;
+  }
+
+  set('k-ins-tot',   ins.length);
+  set('k-ins-bajo',  bajosIns);
+  set('k-ins-val',   fmt$(valorIns));
+  set('k-ins-ok',    ins.length - bajosIns);
+  set('k-prod-tot',  p.length);
+  set('k-prod-bajo', bajosProd);
+  set('k-ingreso',   fmt$(ingresos));
+  set('k-vend',      vendidos);
+  set('k-mermas-hoy', mHoy.length);
+  set('k-perdida-hoy', fmt$(perdida));
+
   if(typeof maskDashForEmpleado === 'function') maskDashForEmpleado();
+  if(typeof checkNotif === 'function') checkNotif();
 }
 
 function renderMermas(){
@@ -2115,7 +2115,11 @@ function renderMermas(){
         +'<div class="merma-val" style="color:#C62828">'+fmt$(m.perdidaTotal||0)+'</div></div>'
         +'<div class="merma-det"><span class="merma-chip">'+(m.tipo||'')+'</span>'
         +'<span class="merma-chip">'+(m.userName||'')+'</span>'
-        +'<span class="merma-chip">'+(m.fecha||fmtTs(m.ts))+'</span></div></div>';
+        +'<span class="merma-chip">'+(m.fecha||fmtTs(m.ts))+'</span></div>'
+        +'<div style="display:flex;gap:8px;margin-top:8px">'
+        +'<button onclick="editarMerma(\''+m.id+'\')" style="flex:1;padding:7px;border-radius:9px;border:1px solid #1F4E79;background:transparent;color:#1F4E79;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">✏️ Editar</button>'
+        +'<button onclick="eliminarMerma(\''+m.id+'\')" style="flex:1;padding:7px;border-radius:9px;border:1px solid #B71C1C;background:transparent;color:#B71C1C;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">🗑️ Eliminar</button>'
+        +'</div></div>';
     }).join('');
   }
   
@@ -2124,9 +2128,176 @@ function renderMermas(){
   if(typeof updateMermaItems==='function') updateMermaItems();
 }
 
+/* ── Poblar items del select de merma ── */
+window.updateMermaItems = function(){
+  var tipoEl = document.getElementById('m-tipo');
+  var itemEl = document.getElementById('m-item');
+  if(!tipoEl || !itemEl) return;
+
+  var tipo = tipoEl.value;
+  var lista = tipo === 'vivere'
+    ? (typeof getViv==='function' ? getViv() : S.productos.filter(function(p){ return ['Víveres','Salsas','Empaque','Limpieza','Aseo'].indexOf(p.cat)!==-1; }))
+    : (typeof getMar==='function' ? getMar() : S.productos.filter(function(p){ return ['Víveres','Salsas','Empaque','Limpieza','Aseo'].indexOf(p.cat)===-1; }));
+
+  /* Si lista vacía usar todos los productos */
+  if(!lista || !lista.length) lista = S.productos || [];
+
+  itemEl.innerHTML = '<option value="">-- Selecciona un ítem --</option>'
+    + lista.map(function(p){
+        return '<option value="'+p.id+'">'+p.nombre+' ('+( p.cant!==undefined ? p.cant : p.stock||0 )+' '+( p.unidad||'' )+')</option>';
+      }).join('');
+
+  /* También poblar insumos si el tipo es vivere */
+  if(tipo === 'vivere' && S.insumos && S.insumos.length){
+    itemEl.innerHTML += S.insumos.map(function(i){
+      return '<option value="'+i.id+'">'+i.nombre+' ('+( i.cant||0 )+' '+(i.unidad||'')+')</option>';
+    }).join('');
+  }
+
+  if(typeof calcMermaPerdida==='function') calcMermaPerdida();
+};
+
+window.calcMermaPerdida = function(){
+  var tipoEl  = document.getElementById('m-tipo');
+  var itemEl  = document.getElementById('m-item');
+  var cantEl  = document.getElementById('m-cant');
+  var perdEl  = document.getElementById('m-perdida-val');
+  if(!itemEl || !cantEl || !perdEl) return;
+
+  var tipo  = tipoEl ? tipoEl.value : 'producto';
+  var id    = itemEl.value;
+  var cant  = parseFloat(cantEl.value)||0;
+
+  /* Buscar en productos e insumos */
+  var todosItems = (S.productos||[]).concat(S.insumos||[]);
+  var item = todosItems.find(function(x){ return x.id===id; });
+  var costo = item ? (item.costo||0) : 0;
+  var perdida = cant * costo;
+
+  perdEl.textContent = '$' + perdida.toLocaleString('es-CO', {minimumFractionDigits:2, maximumFractionDigits:2});
+};
+
+/* ── Guardar merma (crear o editar) ── */
+window.guardarMerma = function(){
+  var itemEl   = document.getElementById('m-item');
+  var cantEl   = document.getElementById('m-cant');
+  var motivoEl = document.getElementById('m-motivo');
+  var descEl   = document.getElementById('m-desc');
+  var tipoEl   = document.getElementById('m-tipo');
+
+  if(!itemEl||!itemEl.value){ showToast('Selecciona un ítem'); return; }
+  var cant = parseFloat(cantEl?cantEl.value:0)||0;
+  if(cant<=0){ showToast('Ingresa una cantidad válida'); return; }
+
+  var tipo    = tipoEl ? tipoEl.value : 'producto';
+  var lista   = tipo==='vivere' ? (typeof getViv==='function'?getViv():S.productos) : (typeof getMar==='function'?getMar():S.productos);
+  var item    = lista.find(function(p){ return p.id===itemEl.value; });
+  if(!item){ showToast('Ítem no encontrado'); return; }
+
+  var perdida = cant * (item.costo||0);
+  var motivo  = motivoEl ? motivoEl.value : 'dañado';
+  var desc    = descEl   ? descEl.value   : '';
+
+  var mermas = JSON.parse(JSON.stringify(S.mermas||[]));
+  var editId = window._editMermaId;
+
+  if(editId){
+    /* Editar existente */
+    var idx = mermas.findIndex(function(m){ return m.id===editId; });
+    if(idx===-1){ showToast('Merma no encontrada'); return; }
+    mermas[idx].itemId      = item.id;
+    mermas[idx].itemNombre  = item.nombre;
+    mermas[idx].itemUnidad  = item.unidad||'';
+    mermas[idx].cant        = cant;
+    mermas[idx].motivo      = motivo;
+    mermas[idx].desc        = desc;
+    mermas[idx].tipo        = tipo;
+    mermas[idx].perdidaTotal= perdida;
+    mermas[idx].editadoEl   = hoy();
+  } else {
+    /* Nueva merma */
+    var nueva = {
+      id:         'm-'+Date.now(),
+      ts:         Date.now(),
+      fecha:      hoy(),
+      tipo:       tipo,
+      itemId:     item.id,
+      itemNombre: item.nombre,
+      itemUnidad: item.unidad||'',
+      cant:       cant,
+      motivo:     motivo,
+      desc:       desc,
+      perdidaTotal: perdida,
+      userName:   currentUser ? currentUser.nombre : 'Sistema'
+    };
+    mermas.push(nueva);
+  }
+
+  fbSet('inventario/mermas', mermas).then(function(){
+    showToast(editId ? '✅ Merma actualizada' : '✅ Pérdida registrada');
+    fbLog('add', (editId?'Merma editada':'Merma registrada')+': '+item.nombre+' ×'+cant);
+    closeModal('modal-merma');
+    window._editMermaId = null;
+  });
+};
+
 window._fMerma = 'Todos';
 window.setFMerma = function(u){ window._fMerma=u; renderMermas(); };
-window.openMermaModal = function(){ openModal('modal-merma'); if(typeof updateMermaItems==='function')updateMermaItems(); };
+window.openMermaModal = function(){ 
+  window._editMermaId = null;
+  var titulo = document.getElementById('modal-merma-titulo');
+  var btnGuardar = document.getElementById('btn-guardar-merma');
+  if(titulo) titulo.textContent = '⚠️ Registrar Pérdida / Merma';
+  if(btnGuardar) btnGuardar.textContent = '⚠️ Registrar Pérdida';
+  /* Limpiar campos */
+  ['m-cant','m-desc'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value = id==='m-cant'?'1':''; });
+  var motEl = document.getElementById('m-motivo'); if(motEl) motEl.value='dañado';
+  openModal('modal-merma'); 
+  if(typeof updateMermaItems==='function') updateMermaItems(); 
+};
+
+window.editarMerma = function(id){
+  var merma = (S.mermas||[]).find(function(m){ return m.id===id; });
+  if(!merma){ showToast('Merma no encontrada'); return; }
+  window._editMermaId = id;
+
+  /* Actualizar título y botón */
+  var titulo = document.getElementById('modal-merma-titulo');
+  var btnGuardar = document.getElementById('btn-guardar-merma');
+  if(titulo) titulo.textContent = '✏️ Editar Pérdida / Merma';
+  if(btnGuardar) btnGuardar.textContent = '💾 Guardar Cambios';
+
+  /* Precargar tipo e item */
+  var tipoEl = document.getElementById('m-tipo');
+  if(tipoEl){ tipoEl.value = merma.tipo==='vivere' ? 'vivere' : 'producto'; }
+  if(typeof updateMermaItems==='function') updateMermaItems();
+
+  /* Precargar item seleccionado (pequeño delay para que se pueble el select) */
+  setTimeout(function(){
+    var itemEl = document.getElementById('m-item');
+    if(itemEl) itemEl.value = merma.itemId||'';
+    var cantEl = document.getElementById('m-cant');
+    if(cantEl) cantEl.value = merma.cant||1;
+    var motivoEl = document.getElementById('m-motivo');
+    if(motivoEl) motivoEl.value = merma.motivo||'dañado';
+    var descEl = document.getElementById('m-desc');
+    if(descEl) descEl.value = merma.desc||merma.descripcion||'';
+    /* Actualizar pérdida estimada */
+    if(typeof calcMermaPerdida==='function') calcMermaPerdida();
+  }, 100);
+
+  openModal('modal-merma');
+};
+
+window.eliminarMerma = function(id){
+  if(!confirm('¿Seguro que quieres eliminar esta merma?')) return;
+  var mermas = S.mermas||[];
+  var nuevas = mermas.filter(function(m){ return m.id!==id; });
+  fbSet('inventario/mermas', nuevas).then(function(){
+    showToast('🗑️ Merma eliminada');
+    fbLog('delete','Merma eliminada: '+id);
+  });
+};
 
 /* ══════════════════════════════════════════════════════════════════
    MÓDULO VENTAS DIARIAS — Don Camarón Inventario
