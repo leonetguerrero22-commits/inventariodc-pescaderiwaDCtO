@@ -1482,15 +1482,28 @@ window.saveNewIns=function(){
 /* ── CIERRE DIARIO ── */
 function renderCierre(){
   var el=document.getElementById('cierre-content'); if(!el) return;
-  var fecha=hoy();
+  var fecha = window._fechaCierreOp || hoy();
+  var hoyKey = hoy();
   var ch=(S.cierres||{})[fecha.replace(/-/g,'_')]||{};
   var prod=S.productos;
-  var mHoy=(S.mermas||[]).filter(function(m){return m.fecha===fecha;});
-  var perdida=mHoy.reduce(function(s,m){return s+(m.perdidaTotal||0);},0);
-  var esDomingo=diaSemana()===0;
+  var mDia=(S.mermas||[]).filter(function(m){return m.fecha===fecha;});
+  var perdida=mDia.reduce(function(s,m){return s+(m.perdidaTotal||0);},0);
+  var esDomingo=new Date(fecha+'T12:00:00').getDay()===0;
   var h='<div style="padding:12px 0">';
+
+  /* Selector de fecha */
+  h+='<div class="cierre-card">';
+  h+='<div class="cierre-title">📅 Fecha del Registro</div>';
+  h+='<div class="cierre-row"><span class="cierre-label">Selecciona el día</span>';
+  h+='<input type="date" id="fecha-cierre-op" value="'+fecha+'" max="'+hoyKey+'" ';
+  h+='style="border:1px solid #ddd;border-radius:8px;padding:5px 8px;font-size:13px;font-family:inherit;color:#333" ';
+  h+='onchange="window._fechaCierreOp=this.value;renderCierre()">';
+  h+='</div>';
+  if(fecha < hoyKey) h+='<div style="font-size:11px;color:#E65100;padding:4px 0">⚠️ Registrando en un día anterior</div>';
+  h+='</div>';
+
   h+='<div class="cierre-card"><div class="cierre-title">'+fmtF(fecha)+'</div>';
-  h+='<div class="cierre-resumen"><div class="cierre-resumen-row"><span>Mermas hoy</span><span><b>'+mHoy.length+'</b></span></div>';
+  h+='<div class="cierre-resumen"><div class="cierre-resumen-row"><span>Mermas del día</span><span><b>'+mDia.length+'</b></span></div>';
   h+='<div class="cierre-resumen-row"><span>Perdida estimada</span><span><b style="color:#B71C1C">'+fmt$(perdida)+'</b></span></div></div>';
   if(ch.manana)h+='<div style="background:#C6EFCE;border-radius:10px;padding:8px 12px;font-size:12px;color:#1E5631;font-weight:600;margin-top:8px">Turno manana cerrado por '+ch.manana.usuario+' '+ch.manana.hora+'</div>';
   if(ch.tarde)h+='<div style="background:#BDD7EE;border-radius:10px;padding:8px 12px;font-size:12px;color:#1F4E79;font-weight:600;margin-top:6px">Turno tarde cerrado por '+ch.tarde.usuario+' '+ch.tarde.hora+'</div>';
@@ -1536,7 +1549,7 @@ function _buildTurnoForm(pref,prod){
 }
 function guardarTurno(turno){
   var pref=turno==='manana'?'man':'tar';
-  var fecha=hoy(),key=fecha.replace(/-/g,'_'),sp={},hasData=false;
+  var fecha=window._fechaCierreOp||hoy(),key=fecha.replace(/-/g,'_'),sp={},hasData=false;
   S.productos.forEach(function(p){
     var ee=document.getElementById(pref+'-e-'+p.id),es=document.getElementById(pref+'-s-'+p.id);
     var ent=ee&&ee.value!==''?parseFloat(ee.value):null;
@@ -1731,7 +1744,24 @@ window.guardarEditPlato=function(platoId){var plato=PLATOS_MENU.find(function(p)
 window.abrirNuevoPlato=function(){var modal=document.getElementById('modal-add'),title=document.getElementById('modal-add-title'),body=document.getElementById('modal-add-body');if(!modal||!title||!body)return;title.textContent='Nuevo plato al menu';var po=S.productos.map(function(p){return '<option value="'+p.id+'">'+p.nombre+' ('+p.unidad+')</option>';}).join('');body.innerHTML='<div class="field-col"><div class="flabel">Nombre</div><input class="finput" id="np-nom" placeholder="Ej: Ceviche especial"></div><div class="field-row"><div class="field-col"><div class="flabel">Categoria</div><input class="finput" id="np-cat" placeholder="Ej: Ceviches" list="np-cats"><datalist id="np-cats"><option>Entradas</option><option>Ensaladas</option><option>Ceviches</option><option>Empanizados</option><option>Cocteles</option><option>Especialidades</option><option>Bandejas</option><option>Sushi</option><option>Hamburguesas</option><option>Bebidas</option></datalist></div><div class="field-col"><div class="flabel">Precio (Bs)</div><input class="finput yellow" type="number" id="np-precio" min="0" step="1000" placeholder="45000"></div></div><div style="font-size:11px;font-weight:600;color:var(--color-text-info);margin:10px 0 6px">Ingrediente (opcional):</div><div style="display:flex;gap:6px"><select id="np-prod" class="finput" style="flex:2"><option value="">Sin ingrediente</option>'+po+'</select><input type="number" id="np-qty" placeholder="Qty" step="0.01" min="0" value="0.1" style="width:64px;border:1px solid var(--color-border-secondary);border-radius:8px;padding:4px 6px;font-size:12px;font-family:inherit;background:var(--color-background-secondary)"></div><button class="btn-primary" onclick="guardarNuevoPlato()" style="margin-top:12px">Agregar al menu</button>';openModal('modal-add');};
 window.guardarNuevoPlato=function(){var nom=((document.getElementById('np-nom')||{}).value||'').trim(),cat=((document.getElementById('np-cat')||{}).value)||'Otros',precio=parseFloat(((document.getElementById('np-precio')||{}).value))||0,pid=((document.getElementById('np-prod')||{}).value)||'',qty=parseFloat(((document.getElementById('np-qty')||{}).value))||0;if(!nom){showToast('Escribe el nombre');return;}var ings=[];if(pid&&qty>0){var prod3=S.productos.find(function(p){return p.id===pid;});if(prod3)ings.push({pid:pid,nombre:prod3.nombre,qty:qty,unidad:prod3.unidad});}var np={id:'pl-custom-'+Date.now(),nombre:nom,cat:cat,precio:precio,ingredientes:ings};PLATOS_MENU.push(np);savePlatoToDB(np);closeModal('modal-add');restCatFilter='Todos';showToast('Plato agregado');renderRestaurante();};
 window.registrarPlato=function(platoId){var plato=PLATOS_MENU.find(function(p){return p.id===platoId;});if(!plato)return;var qEl=document.getElementById('rest-qty-'+platoId);var cantidad=qEl?(parseInt(qEl.value)||1):1;for(var i=0;i<plato.ingredientes.length;i++){var ing=plato.ingredientes[i];var prod4=S.productos.find(function(p){return p.id===ing.pid;});if(!prod4)continue;var iqEl=document.getElementById('ing-qty-'+platoId+'-'+ing.pid);var ingQty=iqEl?(parseFloat(iqEl.value)||ing.qty):ing.qty;var desc=ingQty*cantidad;prod4.stock=Math.max(0,(prod4.stock||0)-desc);prod4.salida=(prod4.salida||0)+desc;if(db){try{firebase.database().ref('inventario/productos/'+prod4.id).update({stock:prod4.stock,salida:prod4.salida});}catch(e){}}}var hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});fbLog('restaurante','[REST] '+cantidad+'x '+plato.nombre);restTurnoLog.push({tipo:'plato',id:platoId,nombre:plato.nombre,precio:plato.precio,cantidad:cantidad,hora:hora,ingredientes:plato.ingredientes.slice()});restExpanded=null;showToast('Registrado y descontado');renderRestaurante();};
-window.ejecutarDescuentoRapido=function(){var sel=document.getElementById('dq-prod'),qEl=document.getElementById('dq-qty'),obsEl=document.getElementById('dq-obs');if(!sel||!qEl)return;var pid=sel.value,qty=parseFloat(qEl.value)||0,obs=obsEl?obsEl.value:'Uso restaurante';if(!pid||!qty){showToast('Selecciona producto y cantidad');return;}var prod5=S.productos.find(function(p){return p.id===pid;});if(!prod5){showToast('Producto no encontrado');return;}prod5.stock=Math.max(0,(prod5.stock||0)-qty);prod5.salida=(prod5.salida||0)+qty;if(db){try{firebase.database().ref('inventario/productos/'+prod5.id).update({stock:prod5.stock,salida:prod5.salida});}catch(e){}}var hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});fbLog('restaurante','[RAPIDO] -'+qty+' '+prod5.unidad+' '+prod5.nombre);restTurnoLog.push({tipo:'rapido',prodId:pid,nombre:prod5.nombre,unidad:prod5.unidad,cantidad:qty,hora:hora,obs:obs});showToast('-'+qty+' '+prod5.unidad+' de '+prod5.nombre);renderRestaurante();};
+window.ejecutarDescuentoRapido=function(){
+  var sel=document.getElementById('dq-prod'),qEl=document.getElementById('dq-qty'),obsEl=document.getElementById('dq-obs'),fechaEl=document.getElementById('dq-fecha');
+  if(!sel||!qEl)return;
+  var pid=sel.value,qty=parseFloat(qEl.value)||0,obs=obsEl?obsEl.value:'Uso restaurante';
+  var fechaDesc=fechaEl?fechaEl.value:hoy();
+  if(!pid||!qty){showToast('Selecciona producto y cantidad');return;}
+  var prod5=S.productos.find(function(p){return p.id===pid;});
+  if(!prod5){showToast('Producto no encontrado');return;}
+  prod5.stock=Math.max(0,(prod5.stock||0)-qty);
+  prod5.salida=(prod5.salida||0)+qty;
+  if(db){try{firebase.database().ref('inventario/productos/'+prod5.id).update({stock:prod5.stock,salida:prod5.salida});}catch(e){}}
+  var hora=new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
+  var notaFecha=fechaDesc!==hoy()?' (fecha: '+fechaDesc+')':'';
+  fbLog('restaurante','[RAPIDO] -'+qty+' '+prod5.unidad+' '+prod5.nombre+notaFecha);
+  restTurnoLog.push({tipo:'rapido',prodId:pid,nombre:prod5.nombre,unidad:prod5.unidad,cantidad:qty,hora:hora,obs:obs,fecha:fechaDesc});
+  showToast('-'+qty+' '+prod5.unidad+' de '+prod5.nombre+(notaFecha?' (día anterior)':''));
+  renderRestaurante();
+};
 window.limpiarTurno=function(){if(!confirm('Iniciar nuevo turno?'))return;restTurnoLog=[];restView='menu';renderRestaurante();showToast('Nuevo turno iniciado');};
 function renderRestaurante(){
   var el=document.getElementById('restaurante-content'); if(!el) return;
@@ -1779,6 +1809,7 @@ function renderRestaurante(){
     h+='<div class="cierre-card"><div class="cierre-title">Descuento rapido</div><div style="font-size:12px;color:var(--color-text-tertiary);margin-bottom:12px">Descuenta directamente del inventario sin asociar a un plato.</div>';
     h+='<div class="field-col"><div class="flabel">Producto</div><select id="dq-prod" class="finput" style="width:100%">'+S.productos.map(function(p){return '<option value="'+p.id+'">'+p.nombre+' — Stock:'+(p.stock||0)+' '+p.unidad+'</option>';}).join('')+'</select></div>';
     h+='<div class="field-row" style="margin-top:10px"><div class="field-col"><div class="flabel">Cantidad</div><input type="number" id="dq-qty" class="finput yellow" min="0.01" step="0.01" value="1"></div><div class="field-col"><div class="flabel">Motivo</div><input id="dq-obs" class="finput" placeholder="Uso restaurante" value="Uso restaurante"></div></div>';
+    h+='<div class="field-row" style="margin-top:10px"><div class="field-col" style="flex:1"><div class="flabel">📅 Fecha del descuento</div><input type="date" id="dq-fecha" class="finput" value="'+hoy()+'" max="'+hoy()+'"></div></div>';
     h+='<button class="btn-usar-todo" onclick="ejecutarDescuentoRapido()" style="margin-top:12px">Descontar del inventario</button></div>';
     var dqs=restTurnoLog.filter(function(l){return l.tipo==='rapido';});
     if(dqs.length){h+='<div class="cierre-card"><div class="cierre-title">Descuentos rapidos del turno</div>';dqs.slice().reverse().forEach(function(d){h+='<div class="transfer-row"><div><div class="transfer-prod">'+d.nombre+'</div><div style="font-size:10px;color:var(--color-text-tertiary)">'+d.hora+' - '+d.obs+'</div></div><span class="transfer-minus">-'+d.cantidad+' '+d.unidad+'</span></div>';});h+='</div>';}
