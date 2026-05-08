@@ -374,22 +374,43 @@ body{font-family:'DM Sans',sans-serif;background:var(--negro);color:var(--negro)
     <!-- DASHBOARD -->
     <div id="tab-dashboard" class="tab-panel active">
       <div class="date-chip">📅 <span id="fecha-hoy"></span></div>
+
+      <!-- Fila 1: Total items y stock bajo -->
       <div class="kpi-grid">
-        <div class="kpi blue"><div class="kpi-ico">📦</div><div class="kpi-label">Insumos</div><div class="kpi-val" id="k-ins-tot">—</div></div>
-        <div class="kpi red"><div class="kpi-ico">⚠️</div><div class="kpi-label">Bajo Stock</div><div class="kpi-val" id="k-ins-bajo">—</div></div>
-        <div class="kpi"><div class="kpi-ico">💲</div><div class="kpi-label">Valor Insumos</div><div class="kpi-val sm" id="k-ins-val">—</div></div>
-        <div class="kpi green"><div class="kpi-ico">✅</div><div class="kpi-label">Stock OK</div><div class="kpi-val" id="k-ins-ok">—</div></div>
+        <div class="kpi blue"><div class="kpi-ico">📦</div><div class="kpi-label">Total Items</div><div class="kpi-val" id="k-tot-items">—</div></div>
+        <div class="kpi red"><div class="kpi-ico">⚠️</div><div class="kpi-label">Stock Bajo</div><div class="kpi-val" id="k-tot-bajo">—</div></div>
       </div>
+
+      <!-- Fila 2: Valor del stock vs Ganancia potencial -->
       <div class="kpi-grid">
-        <div class="kpi blue"><div class="kpi-ico">🛍</div><div class="kpi-label">Productos</div><div class="kpi-val" id="k-prod-tot">—</div></div>
-        <div class="kpi red"><div class="kpi-ico">🔁</div><div class="kpi-label">Reponer</div><div class="kpi-val" id="k-prod-bajo">—</div></div>
-        <div class="kpi"><div class="kpi-ico">💰</div><div class="kpi-label">Ingreso Est.</div><div class="kpi-val sm" id="k-ingreso">—</div></div>
-        <div class="kpi green"><div class="kpi-ico">🥐</div><div class="kpi-label">Vendidos</div><div class="kpi-val" id="k-vend">—</div></div>
+        <div class="kpi"><div class="kpi-ico">💲</div><div class="kpi-label">Valor Stock (Costo)</div><div class="kpi-val sm" id="k-valor-costo">—</div></div>
+        <div class="kpi green"><div class="kpi-ico">💰</div><div class="kpi-label">Valor Venta</div><div class="kpi-val sm" id="k-valor-venta">—</div></div>
       </div>
+
+      <!-- Fila 3: Margen / Utilidad potencial (ancho completo) -->
+      <div style="background:var(--color-background-primary,#fff);border-radius:14px;padding:14px 16px;margin-bottom:10px;border:1px solid var(--color-border-tertiary,#eee);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gris3,#aaa);margin-bottom:4px">💹 Utilidad Potencial del Stock</div>
+          <div class="kpi-val sm" id="k-utilidad" style="font-size:20px;color:#1E5631">—</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gris3,#aaa);margin-bottom:4px">Margen</div>
+          <div id="k-margen" style="font-size:18px;font-weight:700;color:#1F4E79">—%</div>
+        </div>
+      </div>
+
+      <!-- Fila 4: Productos y Víveres por separado -->
+      <div class="kpi-grid">
+        <div class="kpi blue"><div class="kpi-ico">🐟</div><div class="kpi-label">Productos Mar</div><div class="kpi-val" id="k-prod-tot">—</div></div>
+        <div class="kpi"><div class="kpi-ico">🛒</div><div class="kpi-label">Víveres</div><div class="kpi-val" id="k-viv-tot">—</div></div>
+      </div>
+
+      <!-- Fila 5: Mermas -->
       <div class="kpi-grid">
         <div class="kpi red"><div class="kpi-ico">⚠️</div><div class="kpi-label">Mermas Hoy</div><div class="kpi-val" id="k-mermas-hoy">0</div></div>
         <div class="kpi red"><div class="kpi-ico">💸</div><div class="kpi-label">Pérdida Hoy</div><div class="kpi-val sm" id="k-perdida-hoy">$0</div></div>
       </div>
+
       <div class="sec-hdr">⚠️ Alertas de <span>Stock</span></div>
       <div id="alertas-dash"></div>
     </div>
@@ -2050,41 +2071,67 @@ function renderLoginUsers(){
 
 /* renderDash: see appended block */
 function renderDash(){
-  var p   = S.productos;
-  var ins = S.insumos;
-  var mermas = S.mermas||[];
+  var p   = S.productos || [];
+  var ins = S.insumos   || [];
+  var mermas = S.mermas || [];
   var hoyStr = new Date().toDateString();
   var mHoy   = mermas.filter(function(m){ return new Date(m.ts).toDateString()===hoyStr; });
   var perdida = mHoy.reduce(function(s,m){ return s+(m.perdidaTotal||0); }, 0);
 
-  var bajosProd = p.filter(function(x){ return typeof stProd==='function' && stProd(x)==='reponer'; }).length;
-  var stockOk   = p.filter(function(x){ return typeof stProd==='function' && stProd(x)==='ok'; }).length;
-  var ingresos  = p.reduce(function(s,x){ return s+((x.salida||0)*(x.precio||0)); }, 0);
-  var vendidos  = p.reduce(function(s,x){ return s+(x.salida||0); }, 0);
-  var valorIns  = ins.reduce(function(s,i){ return s+(i.cant||0)*(i.costo||0); }, 0);
+  /* Separar productos de mar y víveres */
+  var VIV = typeof getViv==='function' ? getViv() : p.filter(function(x){ return ['Víveres','Salsas','Empaque','Limpieza','Aseo'].indexOf(x.cat)!==-1; });
+  var MAR = typeof getMar==='function' ? getMar() : p.filter(function(x){ return ['Víveres','Salsas','Empaque','Limpieza','Aseo'].indexOf(x.cat)===-1; });
 
-  /* Insumos con stock bajo */
-  var bajosIns = ins.filter(function(i){ return typeof stIns==='function' && stIns(i)==='bajo'; }).length;
+  /* Todos los items (productos + insumos) */
+  var todosItems = p.concat(ins);
+  var totalItems = todosItems.length;
 
+  /* Stock bajo — productos con stProd===reponer + insumos con stIns===bajo */
+  var bajosP = p.filter(function(x){ return typeof stProd==='function' && stProd(x)==='reponer'; }).length;
+  var bajosI = ins.filter(function(x){ return typeof stIns==='function'  && stIns(x)==='bajo'; }).length;
+  var totalBajo = bajosP + bajosI;
+
+  /* Valor de costo del stock completo */
+  var costoProd = p.reduce(function(s,x){ return s + (x.stock||0)*(x.costo||0); }, 0);
+  var costoIns  = ins.reduce(function(s,i){ return s + (i.cant||0)*(i.costo||0); }, 0);
+  var valorCosto = costoProd + costoIns;
+
+  /* Valor de venta del stock completo */
+  var valorVenta = p.reduce(function(s,x){ return s + (x.stock||0)*(x.precio||0); }, 0);
+
+  /* Utilidad potencial y margen */
+  var utilidad = valorVenta - valorCosto;
+  var margen   = valorVenta > 0 ? Math.round((utilidad / valorVenta) * 100) : 0;
+
+  /* Fecha */
   var fechaEl = document.getElementById('fecha-hoy');
   if(fechaEl) fechaEl.textContent = new Date().toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long'});
 
-  /* Actualizar KPIs por ID */
   function set(id, val){
     var el = document.getElementById(id);
     if(el) el.textContent = val;
   }
 
-  set('k-ins-tot',   ins.length);
-  set('k-ins-bajo',  bajosIns);
-  set('k-ins-val',   fmt$(valorIns));
-  set('k-ins-ok',    ins.length - bajosIns);
-  set('k-prod-tot',  p.length);
-  set('k-prod-bajo', bajosProd);
-  set('k-ingreso',   fmt$(ingresos));
-  set('k-vend',      vendidos);
-  set('k-mermas-hoy', mHoy.length);
+  set('k-tot-items',   totalItems);
+  set('k-tot-bajo',    totalBajo);
+  set('k-valor-costo', fmt$(valorCosto));
+  set('k-valor-venta', fmt$(valorVenta));
+  set('k-utilidad',    fmt$(utilidad));
+  set('k-prod-tot',    MAR.length);
+  set('k-viv-tot',     VIV.length + ins.length);
+  set('k-mermas-hoy',  mHoy.length);
   set('k-perdida-hoy', fmt$(perdida));
+
+  /* Margen con color */
+  var margenEl = document.getElementById('k-margen');
+  if(margenEl){
+    margenEl.textContent = margen + '%';
+    margenEl.style.color = margen >= 40 ? '#1E5631' : margen >= 20 ? '#856404' : '#B71C1C';
+  }
+
+  /* Utilidad con color */
+  var utilEl = document.getElementById('k-utilidad');
+  if(utilEl) utilEl.style.color = utilidad >= 0 ? '#1E5631' : '#B71C1C';
 
   if(typeof maskDashForEmpleado === 'function') maskDashForEmpleado();
   if(typeof checkNotif === 'function') checkNotif();
