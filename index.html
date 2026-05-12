@@ -2202,11 +2202,22 @@ window.ejecutarDescuentoRapido=function(){
   if(db){try{firebase.database().ref('inventario/productos/'+prod5.id).update({stock:prod5.stock,salida:prod5.salida});}catch(e){}}
   var hora=new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
   var notaFecha=fechaDesc!==hoy()?' (fecha: '+fechaDesc+')':'';
-  var entrada={tipo:'rapido',prodId:pid,nombre:prod5.nombre,unidad:prod5.unidad,cantidad:qty,hora:hora,obs:obs,fecha:fechaDesc,ts:Date.now()};
+  var entrada={tipo:'rapido',prodId:pid,nombre:prod5.nombre,unidad:prod5.unidad,cantidad:qty,hora:hora,obs:obs,fecha:fechaDesc,ts:Date.now(),usuario:currentUser?currentUser.nombre:'',userId:currentUser?currentUser.id:''};
   fbLog('restaurante','[RAPIDO] -'+qty+' '+prod5.unidad+' '+prod5.nombre+notaFecha);
   restTurnoLog.push(entrada);
-  /* Guardar en Firebase por fecha */
-  if(db) firebase.database().ref('restaurante/log/'+fechaDesc.replace(/-/g,'_')).push(entrada);
+  /* Guardar en Firebase por fecha — ruta compartida entre todos los usuarios */
+  if(db){
+    firebase.database().ref('restaurante/log/'+fechaDesc.replace(/-/g,'_')).push(entrada);
+    /* También guardar en descuentosRapidos para vista compartida */
+    firebase.database().ref('descuentosRapidos/'+fechaDesc.replace(/-/g,'_')).push(entrada);
+    /* Guardar historial de inventario por producto */
+    firebase.database().ref('historialInventario/'+pid).push({
+      fecha:fechaDesc,hora:hora,cantidad:-qty,unidad:prod5.unidad,
+      motivo:obs,usuario:currentUser?currentUser.nombre:'',
+      stockAntes:(prod5.stock||0)+qty,stockDespues:prod5.stock,
+      origen:'descuento_rapido',ts:Date.now()
+    });
+  }
   showToast('-'+qty+' '+prod5.unidad+' de '+prod5.nombre+(notaFecha?' (día anterior)':''));
   renderRestaurante();
 };
@@ -2259,8 +2270,18 @@ function renderRestaurante(){
     h+='<div class="field-row" style="margin-top:10px"><div class="field-col"><div class="flabel">Cantidad</div><input type="number" id="dq-qty" class="finput yellow" min="0.01" step="0.01" value="1"></div><div class="field-col"><div class="flabel">Motivo</div><input id="dq-obs" class="finput" placeholder="Uso restaurante" value="Uso restaurante"></div></div>';
     h+='<div class="field-row" style="margin-top:10px"><div class="field-col" style="flex:1"><div class="flabel">📅 Fecha del descuento</div><input type="date" id="dq-fecha" class="finput" value="'+hoy()+'" max="'+hoy()+'"></div></div>';
     h+='<button class="btn-usar-todo" onclick="ejecutarDescuentoRapido()" style="margin-top:12px">Descontar del inventario</button></div>';
-    var dqs=restTurnoLog.filter(function(l){return l.tipo==='rapido';});
-    if(dqs.length){h+='<div class="cierre-card"><div class="cierre-title">Descuentos rapidos del turno</div>';dqs.slice().reverse().forEach(function(d){h+='<div class="transfer-row"><div><div class="transfer-prod">'+d.nombre+'</div><div style="font-size:10px;color:var(--color-text-tertiary)">'+d.hora+' - '+d.obs+'</div></div><span class="transfer-minus">-'+d.cantidad+' '+d.unidad+'</span></div>';});h+='</div>';}
+    /* Descuentos rapidos: cargar TODOS desde Firebase (compartido entre usuarios) */
+    var todosRapidos = (S.descuentosRapidos||[]).filter(function(d){ return d.fecha===hoy(); });
+    if(todosRapidos.length){
+      h+='<div class="cierre-card"><div class="cierre-title">Descuentos rapidos del turno</div>';
+      h+='<div style="font-size:10px;color:#888;margin-bottom:6px">Todos los usuarios — actualizado en tiempo real</div>';
+      todosRapidos.slice().reverse().forEach(function(d){
+        h+='<div class="transfer-row"><div><div class="transfer-prod">'+d.nombre+'</div>';
+        h+='<div style="font-size:10px;color:var(--color-text-tertiary)">'+d.hora+' - '+d.obs+(d.usuario?' · '+d.usuario:'')+'</div></div>';
+        h+='<span class="transfer-minus">-'+d.cantidad+' '+d.unidad+'</span></div>';
+      });
+      h+='</div>';
+    }
   } else {
     var resumen={};
     restTurnoLog.forEach(function(log){if(log.tipo==='rapido'){var k=log.nombre;if(!resumen[k])resumen[k]={total:0,unidad:log.unidad||''};resumen[k].total+=parseFloat(log.cantidad)||0;}else{(log.ingredientes||[]).forEach(function(ing){if(!resumen[ing.pid])resumen[ing.pid]={nombre:ing.nombre,unidad:ing.unidad,total:0};resumen[ing.pid].total+=ing.qty*(log.cantidad||1);});}});
@@ -3400,6 +3421,329 @@ function exportarVentasExcel(){
 }
 
 
+/* ══════════════════════════════════════════════════════════════════
+   CAMBIO 1 — Listener Firebase para descuentosRapidos compartidos
+   ══════════════════════════════════════════════════════════════════ */
+function initDescuentosRapidosListener(){
+  if(!db) return;
+  var hoyKey = hoy().replace(/-/g,'_');
+  firebase.database().ref('descuentosRapidos/'+hoyKey).on('value', function(snap){
+    var lista = [];
+    if(snap.exists()){
+      snap.forEach(function(child){ lista.push(child.val()); });
+    }
+    S.descuentosRapidos = lista;
+    /* Si estamos en la vista de descuento, refrescar */
+    if(restView==='descuento') renderRestaurante();
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   CAMBIO 2 — Historial detallado por producto
+   ══════════════════════════════════════════════════════════════════ */
+window.verHistorialProducto = function(pid){
+  var prod = S.productos.find(function(p){ return p.id===pid; });
+  if(!prod){ showToast('Producto no encontrado'); return; }
+
+  var modal = document.getElementById('modal-add');
+  var title = document.getElementById('modal-add-title');
+  var body  = document.getElementById('modal-add-body');
+  if(!modal||!title||!body) return;
+
+  title.textContent = '📦 Historial — '+prod.nombre;
+  body.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Cargando historial...</div>';
+  openModal('modal-add');
+
+  if(!db){
+    body.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Sin conexión a Firebase</div>';
+    return;
+  }
+
+  firebase.database().ref('historialInventario/'+pid).orderByChild('ts').limitToLast(50).once('value').then(function(snap){
+    var registros = [];
+    if(snap.exists()) snap.forEach(function(c){ registros.push(c.val()); });
+    registros.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+
+    if(!registros.length){
+      body.innerHTML = '<div style="text-align:center;padding:20px;color:#888"><div style="font-size:32px;margin-bottom:8px">📭</div>Sin movimientos registrados para este producto</div>';
+      return;
+    }
+
+    var h = '<div style="font-size:12px;color:#888;margin-bottom:12px">Últimos '+registros.length+' movimientos · '+prod.nombre+'</div>';
+    h += '<div style="font-size:11px;font-weight:700;color:#1F4E79;margin-bottom:8px">Stock actual: <span style="font-size:16px">'+( prod.stock||0 )+' '+prod.unidad+'</span></div>';
+    h += '<div class="divider" style="height:1px;background:#f0ece4;margin:10px 0"></div>';
+
+    registros.forEach(function(r){
+      var esNeg = r.cantidad < 0;
+      var colorAmt = esNeg ? '#B71C1C' : '#1E5631';
+      var signo = esNeg ? '' : '+';
+      var fecha = r.fecha || (r.ts ? new Date(r.ts).toLocaleDateString('es-CO') : '—');
+      var hora  = r.hora  || (r.ts ? new Date(r.ts).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}) : '');
+      h += '<div style="padding:10px 0;border-bottom:1px solid #f5f0ea">';
+      h += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
+      h += '<div style="flex:1">';
+      h += '<div style="font-size:13px;font-weight:600;color:#333">'+fecha+(hora?' · '+hora:'')+'</div>';
+      h += '<div style="font-size:11px;color:#888;margin-top:2px">'+( r.motivo||r.origen||'—' )+(r.usuario?' · '+r.usuario:'')+'</div>';
+      if(r.stockAntes!==undefined && r.stockDespues!==undefined){
+        h += '<div style="font-size:10px;color:#aaa;margin-top:2px">Stock: '+r.stockAntes+' → '+r.stockDespues+' '+( r.unidad||prod.unidad )+'</div>';
+      }
+      h += '</div>';
+      h += '<div style="font-size:15px;font-weight:700;color:'+colorAmt+';white-space:nowrap">'+signo+r.cantidad+' '+(r.unidad||prod.unidad)+'</div>';
+      h += '</div></div>';
+    });
+
+    body.innerHTML = h;
+  }).catch(function(e){
+    body.innerHTML = '<div style="text-align:center;padding:20px;color:#B71C1C">Error cargando historial: '+e.message+'</div>';
+  });
+};
+
+/* Agregar botón historial en la vista de productos */
+var _origRenderProductos = typeof renderProductos === 'function' ? renderProductos : null;
+window._renderProductosConHistorial = function(){
+  if(_origRenderProductos) _origRenderProductos();
+  /* Agregar botón de historial a cada producto-card después de render */
+  setTimeout(function(){
+    document.querySelectorAll('.prod-card[data-pid]').forEach(function(card){
+      var pid = card.dataset.pid;
+      if(!pid || card.querySelector('.btn-historial-inv')) return;
+      var footer = card.querySelector('.prod-footer') || card.lastElementChild;
+      if(footer){
+        var btn = document.createElement('button');
+        btn.className = 'btn-historial-inv';
+        btn.style.cssText = 'margin-top:6px;width:100%;padding:7px;border-radius:9px;border:1px solid #1F4E79;background:transparent;color:#1F4E79;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit';
+        btn.textContent = '📊 Ver historial de movimientos';
+        btn.onclick = function(){ window.verHistorialProducto(pid); };
+        footer.appendChild(btn);
+      }
+    });
+  }, 200);
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   CAMBIO 3A — Fecha fija en ventas + confirmación si cambia
+   ══════════════════════════════════════════════════════════════════ */
+(function patchFechaVentas(){
+  /* Override cambiarFechaCierre para pedir confirmación */
+  var _origCambiarFecha = window.cambiarFechaCierre || function(){};
+  window.cambiarFechaCierre = function(fecha){
+    var hoyStr = hoy();
+    if(fecha !== hoyStr){
+      var fechaLabel = new Date(fecha+'T12:00:00').toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+      if(!confirm('⚠️ ATENCIÓN\n\nEstás a punto de registrar ventas para el día:\n'+fechaLabel+'\n\nEsta acción quedará registrada en bitácora con tu usuario.\n\n¿Confirmas que deseas continuar?')){
+        /* Restaurar fecha a hoy */
+        var el = document.getElementById('fecha-cierre');
+        if(el) el.value = hoyStr;
+        window._fechaCierre = null;
+        return;
+      }
+      /* Log de la edición */
+      fbLog('edit', 'Registro de ventas en fecha anterior: '+fecha+' — Usuario: '+(currentUser?currentUser.nombre:''));
+      showToast('⚠️ Registrando en fecha: '+fechaLabel);
+    } else {
+      window._fechaCierre = null;
+    }
+    _origCambiarFecha(fecha);
+  };
+
+  /* Asegurar que el input de fecha arranque en hoy y tenga max=hoy */
+  var _origRenderVentas = typeof renderVentas === 'function' ? renderVentas : null;
+  if(_origRenderVentas){
+    window.renderVentas = function(){
+      _origRenderVentas();
+      setTimeout(function(){
+        var fechaEl = document.getElementById('fecha-cierre');
+        if(fechaEl){
+          fechaEl.max = hoy();
+          if(!fechaEl.value || fechaEl.value > hoy()) fechaEl.value = hoy();
+        }
+      }, 100);
+    };
+  }
+})();
+
+/* ══════════════════════════════════════════════════════════════════
+   CAMBIO 3B — Editar día anterior (solo Admin)
+   ══════════════════════════════════════════════════════════════════ */
+window.abrirEditorDiaAnterior = function(){
+  /* Solo admin puede usar esto */
+  if(!currentUser || (currentUser.rol !== 'admin' && currentUser.rol !== 'supervisor')){
+    showToast('⚠️ Solo el administrador puede editar días anteriores');
+    return;
+  }
+
+  var modal = document.getElementById('modal-add');
+  var title = document.getElementById('modal-add-title');
+  var body  = document.getElementById('modal-add-body');
+  if(!modal||!title||!body) return;
+
+  title.textContent = '✏️ Editar Día Anterior';
+
+  var h = '<div style="font-size:12px;color:#888;margin-bottom:14px">Solo Admin · Cada cambio queda en bitácora con fecha y usuario</div>';
+
+  /* Selector de fecha */
+  h += '<div class="field-col" style="margin-bottom:12px"><div class="flabel">📅 Selecciona el día a editar</div>';
+  h += '<input type="date" id="edit-dia-fecha" class="finput" max="'+hoy()+'" value="'+hoy()+'" onchange="cargarDiaAnterior(this.value)">';
+  h += '</div>';
+  h += '<div id="edit-dia-content" style="margin-top:12px"><div style="text-align:center;color:#aaa;padding:20px;font-size:13px">Selecciona una fecha para ver sus registros</div></div>';
+
+  body.innerHTML = h;
+  openModal('modal-add');
+};
+
+window.cargarDiaAnterior = function(fecha){
+  if(!fecha){ return; }
+  var el = document.getElementById('edit-dia-content');
+  if(!el) return;
+
+  var reg = (S.ventas && S.ventas[fecha]) ? S.ventas[fecha] : null;
+  var v = reg ? (reg.ventas||{}) : {};
+  var g = reg ? (reg.gastos||{}) : {};
+  var fechaLabel = new Date(fecha+'T12:00:00').toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+
+  var h = '<div style="font-size:13px;font-weight:700;color:#1F4E79;margin-bottom:12px">'+fechaLabel+'</div>';
+
+  if(!reg){
+    h += '<div style="background:#fff3e0;border-radius:10px;padding:10px 12px;font-size:12px;color:#E65100;margin-bottom:12px">⚠️ No hay registros para este día. Se creará uno nuevo.</div>';
+  } else {
+    h += '<div style="background:#e8f5e9;border-radius:10px;padding:10px 12px;font-size:12px;color:#1E5631;margin-bottom:12px">✅ Registro existente — Creado por: '+(reg.creadoPor||'—')+(reg.registradoEl?' · '+reg.registradoEl:'')+'</div>';
+  }
+
+  /* Ventas */
+  h += '<div style="font-size:11px;font-weight:700;color:#1F4E79;margin-bottom:8px;text-transform:uppercase">💵 Ingresos</div>';
+  var formasPago = [
+    {id:'eda-ef_cop',  label:'💴 Efectivo COP',       val:v.ef_cop||0},
+    {id:'eda-ef_usd',  label:'💵 Efectivo USD',        val:v.ef_usd||0},
+    {id:'eda-ef_ves',  label:'🇻🇪 Bolívares',          val:v.ef_ves||0},
+    {id:'eda-nequi',   label:'📱 Nequi/Daviplata',     val:v.nequi||0},
+    {id:'eda-bancol',  label:'🏦 Bancolombia',         val:v.bancol||0},
+    {id:'eda-zelle',   label:'💱 Zelle',               val:v.zelle||0},
+    {id:'eda-otros',   label:'🏛️ Otros bancos',        val:v.otros||0},
+  ];
+  formasPago.forEach(function(fp){
+    h += '<div class="cierre-row"><span class="cierre-label">'+fp.label+'</span>';
+    h += '<input class="cierre-inp" type="number" min="0" step="1000" id="'+fp.id+'" value="'+fp.val+'"></div>';
+  });
+
+  /* Gastos */
+  h += '<div style="font-size:11px;font-weight:700;color:#B71C1C;margin:14px 0 8px;text-transform:uppercase">📊 Gastos</div>';
+  var gastos = [
+    {id:'eda-g-insumos',    label:'🥩 Insumos',      val:g.insumos||0},
+    {id:'eda-g-bebidas',    label:'🍹 Bebidas',       val:g.bebidas||0},
+    {id:'eda-g-empaques',   label:'📦 Empaques',      val:g.empaques||0},
+    {id:'eda-g-nomina',     label:'👷 Nómina',        val:g.nomina||0},
+    {id:'eda-g-domicilios', label:'🚗 Domicilios',    val:g.domicilios||0},
+    {id:'eda-g-servicios',  label:'💡 Servicios',     val:g.servicios||0},
+    {id:'eda-g-aseo',       label:'🧹 Aseo',          val:g.aseo||0},
+    {id:'eda-g-publicidad', label:'📢 Publicidad',    val:g.publicidad||0},
+    {id:'eda-g-mant',       label:'🔧 Mantenimiento', val:g.mant||0},
+    {id:'eda-g-otros',      label:'💰 Otros gastos',  val:g.otros||0},
+  ];
+  gastos.forEach(function(gx){
+    h += '<div class="cierre-row"><span class="cierre-label">'+gx.label+'</span>';
+    h += '<input class="cierre-inp" type="number" min="0" step="1000" id="'+gx.id+'" value="'+gx.val+'"></div>';
+  });
+
+  /* Motivo de edición */
+  h += '<div style="margin-top:12px"><div class="flabel">📝 Motivo de la edición (requerido)</div>';
+  h += '<input class="finput" id="eda-motivo" placeholder="Ej: Se olvidó registrar el efectivo del cierre" style="margin-top:4px"></div>';
+
+  /* Botón guardar */
+  h += '<button class="btn-primary" style="margin-top:14px;background:#1F4E79" onclick="guardarEdicionDia(\''+fecha+'\')">💾 Guardar Edición del Día</button>';
+  h += '<div style="font-size:10px;color:#aaa;text-align:center;margin-top:8px">Esta edición quedará registrada en bitácora con tu usuario y la hora exacta</div>';
+
+  el.innerHTML = h;
+};
+
+window.guardarEdicionDia = function(fecha){
+  var motivo = (document.getElementById('eda-motivo')||{}).value||'';
+  if(!motivo.trim()){ showToast('⚠️ Debes ingresar el motivo de la edición'); return; }
+
+  function v(id){ return parseFloat((document.getElementById(id)||{}).value)||0; }
+
+  var ventas = {
+    ef_cop:v('eda-ef_cop'), ef_usd:v('eda-ef_usd'), ef_ves:v('eda-ef_ves'),
+    nequi:v('eda-nequi'),   bancol:v('eda-bancol'),  zelle:v('eda-zelle'),
+    otros:v('eda-otros')
+  };
+  var gastos = {
+    insumos:v('eda-g-insumos'),    bebidas:v('eda-g-bebidas'),
+    empaques:v('eda-g-empaques'),  nomina:v('eda-g-nomina'),
+    domicilios:v('eda-g-domicilios'), servicios:v('eda-g-servicios'),
+    aseo:v('eda-g-aseo'),          publicidad:v('eda-g-publicidad'),
+    mant:v('eda-g-mant'),          otros:v('eda-g-otros')
+  };
+
+  var tasas = S.tasas||{usd:4200,ves:0.001};
+  var totalVentas = ventas.ef_cop + ventas.ef_usd*tasas.usd + ventas.ef_ves*tasas.ves
+                  + ventas.nequi + ventas.bancol + ventas.zelle*tasas.usd + ventas.otros;
+  var totalGastos = Object.values(gastos).reduce(function(s,x){ return s+x; }, 0);
+
+  var regActual = (S.ventas && S.ventas[fecha]) || {};
+  var registro = Object.assign({}, regActual, {
+    fecha: fecha,
+    ventas: ventas,
+    gastos: gastos,
+    totalVentas: Math.round(totalVentas),
+    totalGastos: Math.round(totalGastos),
+    utilidad: Math.round(totalVentas - totalGastos),
+    ultimaEdicion: {
+      fecha: hoy(),
+      hora: new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}),
+      usuario: currentUser ? currentUser.nombre : '—',
+      motivo: motivo,
+      ts: Date.now()
+    }
+  });
+
+  fbSet('ventas/'+fecha, registro).then(function(){
+    fbLog('edit', '✏️ Edición día anterior: '+fecha+' — Motivo: '+motivo+' — Admin: '+(currentUser?currentUser.nombre:''));
+    showToast('✅ Día '+fecha+' actualizado correctamente');
+    closeModal('modal-add');
+  }).catch(function(e){
+    showToast('❌ Error al guardar: '+e.message);
+  });
+};
+
+/* Agregar botón "Editar día anterior" en la vista de ventas (solo admin) */
+(function agregarBtnEditarDia(){
+  var _rv = typeof renderVentas==='function' ? window.renderVentas : null;
+  if(!_rv) return;
+  window.renderVentas = function(){
+    _rv();
+    setTimeout(function(){
+      /* Solo mostrar si es admin o supervisor */
+      if(!currentUser) return;
+      if(currentUser.rol !== 'admin' && currentUser.rol !== 'supervisor') return;
+      var el = document.getElementById('ventas-content');
+      if(!el) return;
+      /* Agregar botón al final si no existe */
+      if(el.querySelector('#btn-editar-dia-ant')) return;
+      var btn = document.createElement('button');
+      btn.id = 'btn-editar-dia-ant';
+      btn.style.cssText = 'width:100%;padding:13px;border-radius:12px;border:2px dashed #1F4E79;background:transparent;color:#1F4E79;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:10px;display:flex;align-items:center;justify-content:center;gap:8px';
+      btn.innerHTML = '✏️ Editar / Corregir día anterior (Admin)';
+      btn.onclick = window.abrirEditorDiaAnterior;
+      el.appendChild(btn);
+    }, 300);
+  };
+})();
+
+/* ══════════════════════════════════════════════════════════════════
+   INIT — Arrancar listeners al cargar
+   ══════════════════════════════════════════════════════════════════ */
+(function initFixes(){
+  /* Esperar a que Firebase esté listo */
+  var intentos = 0;
+  var check = setInterval(function(){
+    intentos++;
+    if(typeof db !== 'undefined' && db){
+      clearInterval(check);
+      initDescuentosRapidosListener();
+    }
+    if(intentos > 30) clearInterval(check);
+  }, 500);
+})();
 
 </script>
 </body>
