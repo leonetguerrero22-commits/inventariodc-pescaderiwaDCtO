@@ -1608,8 +1608,13 @@ function renderCierre(){
     h+='<span id="cnt-dif-'+p.id+'" style="min-width:44px;text-align:right;font-size:11px;font-weight:600"></span></div></div>';
   });
   h+='</div>';
-  h+='<button class="btn-cierre" onclick="calcDiferencias()" style="background:#6A1B9A;margin-top:10px">Ver diferencias</button>';
-  h+='<button class="btn-cierre" onclick="guardarConteoSemanal()" style="background:#4A148C;margin-top:6px">Aplicar conteo al inventario</button>';
+  h+='<button class="btn-cierre" onclick="calcDiferenciasV2()" style="background:#6A1B9A;margin-top:10px">📊 Ver diferencias</button>';
+  h+='<div id="conteo-resumen-difs" style="margin-top:8px"></div>';
+  h+='<div id="conteo-pin-wrap" style="display:none;margin-top:8px">';
+  h+='<div style="font-size:12px;font-weight:700;color:#B71C1C;margin-bottom:6px">⚠️ Hay diferencias. Se requiere PIN de Admin para aplicar.</div>';
+  h+='<div style="display:flex;gap:8px"><input type="password" inputmode="numeric" maxlength="4" id="conteo-pin" placeholder="PIN Admin" style="flex:1;padding:10px;border:2px solid #B71C1C;border-radius:10px;font-size:16px;letter-spacing:6px;text-align:center;font-family:inherit">';
+  h+='<button class="btn-cierre" onclick="aplicarConteoConPin()" style="margin-top:0;flex:1;background:#B71C1C;padding:10px">✅ Aprobar y Aplicar</button></div></div>';
+  h+='<button class="btn-cierre" id="btn-aplicar-conteo-libre" onclick="aplicarConteoLibre()" style="background:#4A148C;margin-top:6px;display:none">✅ Aplicar conteo (sin diferencias)</button>';
   h+='</div></div>';
   el.innerHTML=h;
 }
@@ -1700,30 +1705,132 @@ function guardarTurno(turno){
   fbLog('cierre','Turno '+turno+' — '+Object.keys(sp).length+' productos');
   showToast('Turno '+(turno==='manana'?'manana':'tarde')+' guardado');renderCierre();
 }
-function calcDiferencias(){
+/* ══ CONTEO SEMANAL v2 — con control de diferencias y PIN Admin ══ */
+window._conteoDifs = []; // diferencias calculadas
+
+function calcDiferenciasV2(){
+  window._conteoDifs = [];
+  var sinDatos = true;
   S.productos.forEach(function(p){
-    var el=document.getElementById('cnt-'+p.id),dEl=document.getElementById('cnt-dif-'+p.id);
-    if(!el||!dEl||el.value==='')return;
-    var cnt=parseFloat(el.value)||0,sis=p.stock||0,dif=cnt-sis;
-    if(dif===0){dEl.textContent='OK';dEl.style.color='#1E5631';}
-    else if(dif>0){dEl.textContent='+'+dif.toFixed(2);dEl.style.color='#1F4E79';}
-    else{dEl.textContent=dif.toFixed(2);dEl.style.color='#B71C1C';}
+    var el  = document.getElementById('cnt-'+p.id);
+    var dEl = document.getElementById('cnt-dif-'+p.id);
+    if(!el || el.value==='') return;
+    sinDatos = false;
+    var cnt = parseFloat(el.value)||0;
+    var sis = p.stock||0;
+    var dif = cnt - sis;
+    if(dEl){
+      if(dif===0){ dEl.textContent='✅'; dEl.style.color='#1E5631'; }
+      else if(dif>0){ dEl.textContent='+'+dif.toFixed(2); dEl.style.color='#1F4E79'; }
+      else { dEl.textContent=dif.toFixed(2); dEl.style.color='#B71C1C'; }
+    }
+    window._conteoDifs.push({ id:p.id, nombre:p.nombre, unidad:p.unidad, sistema:sis, contado:cnt, diferencia:dif });
   });
-  showToast('Diferencias calculadas');
-}
-function guardarConteoSemanal(){
-  var fecha=hoy(),key=fecha.replace(/-/g,'_'),ajustes={},hay=false;
-  for(var i=0;i<S.productos.length;i++){
-    var p=S.productos[i],el2=document.getElementById('cnt-'+p.id);
-    if(!el2||el2.value==='')continue;
-    p.stock=parseFloat(el2.value)||0; ajustes[p.id]=p.stock; hay=true;
-    if(db) firebase.database().ref('inventario/productos/'+p.id).update({stock:p.stock});
+
+  if(sinDatos){ showToast('Ingresa al menos un conteo'); return; }
+
+  var conDif   = window._conteoDifs.filter(function(d){ return d.diferencia !== 0; });
+  var sinDif   = window._conteoDifs.filter(function(d){ return d.diferencia === 0; });
+  var resEl    = document.getElementById('conteo-resumen-difs');
+  var pinWrap  = document.getElementById('conteo-pin-wrap');
+  var btnLibre = document.getElementById('btn-aplicar-conteo-libre');
+
+  /* Construir tabla resumen */
+  var h = '<div style="background:#f8f4ee;border-radius:10px;padding:12px;margin-top:8px">';
+  h += '<div style="font-size:12px;font-weight:700;color:#333;margin-bottom:8px">📊 Resumen del Conteo</div>';
+  h += '<div style="display:flex;gap:8px;margin-bottom:8px">';
+  h += '<div style="flex:1;background:#C6EFCE;border-radius:8px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:700;color:#1E5631">'+sinDif.length+'</div><div style="font-size:10px;color:#1E5631">Sin diferencia</div></div>';
+  h += '<div style="flex:1;background:'+(conDif.length?'#FFCCCC':'#C6EFCE')+';border-radius:8px;padding:8px;text-align:center"><div style="font-size:18px;font-weight:700;color:'+(conDif.length?'#B71C1C':'#1E5631')+'">'+conDif.length+'</div><div style="font-size:10px;color:'+(conDif.length?'#B71C1C':'#1E5631')+'">Con diferencia</div></div>';
+  h += '</div>';
+
+  if(conDif.length){
+    h += '<div style="font-size:11px;font-weight:700;color:#B71C1C;margin-bottom:6px">⚠️ Productos con diferencia:</div>';
+    conDif.forEach(function(d){
+      var esPos = d.diferencia > 0;
+      h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #f0e8e8;font-size:12px">';
+      h += '<span style="flex:1;color:#333">'+d.nombre+'</span>';
+      h += '<span style="color:#888;font-size:11px;margin:0 8px">Sis:'+d.sistema+' → Cnt:'+d.contado+'</span>';
+      h += '<span style="font-weight:700;color:'+(esPos?'#1F4E79':'#B71C1C')+'">'+(esPos?'+':'')+d.diferencia.toFixed(2)+' '+d.unidad+'</span>';
+      h += '</div>';
+    });
+  } else {
+    h += '<div style="text-align:center;color:#1E5631;font-size:13px;font-weight:600;padding:6px">✅ Sin diferencias — inventario cuadra perfectamente</div>';
   }
-  if(!hay){showToast('No ingresaste ningun conteo');return;}
-  if(db) firebase.database().ref('cierres/'+key+'/conteoSemanal').set({fecha:fecha,usuario:currentUser?currentUser.nombre:'',ts:Date.now()});
-  fbLog('cierre','Conteo semanal — '+Object.keys(ajustes).length+' ajustados');
-  showToast('Conteo semanal aplicado');renderCierre();
+  h += '</div>';
+  if(resEl) resEl.innerHTML = h;
+
+  /* Mostrar controles según resultado */
+  if(conDif.length > 0){
+    /* Hay diferencias — pedir PIN Admin */
+    if(pinWrap)  pinWrap.style.display  = 'block';
+    if(btnLibre) btnLibre.style.display = 'none';
+  } else {
+    /* Sin diferencias — cualquiera puede aplicar */
+    if(pinWrap)  pinWrap.style.display  = 'none';
+    if(btnLibre) btnLibre.style.display = 'block';
+  }
 }
+
+window.aplicarConteoConPin = function(){
+  var pinEl = document.getElementById('conteo-pin');
+  var pin   = pinEl ? pinEl.value : '';
+  if(!pin){ showToast('Ingresa el PIN de Admin'); return; }
+
+  /* Verificar PIN contra usuarios admin */
+  var users = (S.usuarios && S.usuarios.length > 0) ? S.usuarios : DEF_USUARIOS;
+  var admin = users.find(function(u){ return (u.rol==='admin'||u.rol==='supervisor') && String(u.pin)===String(pin); });
+  if(!admin){ showToast('❌ PIN incorrecto'); if(pinEl) pinEl.value=''; return; }
+
+  _ejecutarConteo(admin.nombre);
+};
+
+window.aplicarConteoLibre = function(){
+  _ejecutarConteo(currentUser ? currentUser.nombre : 'Sistema');
+};
+
+function _ejecutarConteo(aprobadoPor){
+  var fecha = hoy();
+  var key   = fecha.replace(/-/g,'_');
+  var difs  = window._conteoDifs || [];
+  if(!difs.length){ showToast('Primero calcula las diferencias'); return; }
+
+  var conDif = difs.filter(function(d){ return d.diferencia!==0; });
+  var ajustes = {};
+
+  difs.forEach(function(d){
+    var p = S.productos.find(function(x){ return x.id===d.id; });
+    if(!p) return;
+    p.stock = d.contado;
+    ajustes[d.id] = { nombre:d.nombre, unidad:d.unidad, stockAntes:d.sistema, stockDespues:d.contado, diferencia:d.diferencia };
+    if(db) firebase.database().ref('inventario/productos/'+p.id).update({ stock:d.contado });
+  });
+
+  /* Guardar en cierres con detalle completo */
+  var registroConteo = {
+    fecha:    fecha,
+    ts:       Date.now(),
+    usuario:  currentUser ? currentUser.nombre : 'Sistema',
+    aprobadoPor: aprobadoPor,
+    totalProductos: difs.length,
+    conDiferencias: conDif.length,
+    ajustes:  ajustes
+  };
+
+  if(db) firebase.database().ref('cierres/'+key+'/conteoSemanal').set(registroConteo);
+
+  /* Log detallado en bitácora */
+  var resumen = conDif.map(function(d){ return d.nombre+': '+d.sistema+'→'+d.contado+' ('+( d.diferencia>0?'+':'')+d.diferencia.toFixed(2)+' '+d.unidad+')'; }).join(', ');
+  fbLog('cierre','Conteo semanal — '+difs.length+' productos, '+conDif.length+' diferencias. Aprobado por: '+aprobadoPor+(resumen?' | '+resumen:''));
+
+  /* Limpiar UI */
+  window._conteoDifs = [];
+  showToast('✅ Conteo aplicado — aprobado por '+aprobadoPor);
+  renderCierre();
+}
+
+/* Mantener calcDiferencias como alias por compatibilidad */
+function calcDiferencias(){ calcDiferenciasV2(); }
+function guardarConteoSemanal(){ showToast('Usa "Ver diferencias" primero'); }
 
 /* ── HISTORIAL ── */
 function renderHistorial(){
@@ -4027,9 +4134,11 @@ window.cargarResumenDia = function(){
   var fechaLabel=new Date(fecha+'T12:00:00').toLocaleDateString('es-CO',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
   if(!db){resEl.innerHTML='<div style="text-align:center;padding:16px;color:#888">Sin conexión</div>';return;}
 
+  /* fechaKey puede venir con - o _ — normalizar a guiones bajos para Firebase */
+  var fbKey = fechaKey.replace(/-/g,'_');
   Promise.all([
-    firebase.database().ref('cierres/'+fechaKey).once('value'),
-    firebase.database().ref('restaurante/log/'+fechaKey).once('value'),
+    firebase.database().ref('cierres/'+fbKey).once('value'),
+    firebase.database().ref('restaurante/log/'+fbKey).once('value'),
   ]).then(function(snaps){
     var cierre=snaps[0].exists()?snaps[0].val():{};
     var restLog=[];
