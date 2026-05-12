@@ -4030,12 +4030,10 @@ window.cargarResumenDia = function(){
   Promise.all([
     firebase.database().ref('cierres/'+fechaKey).once('value'),
     firebase.database().ref('restaurante/log/'+fechaKey).once('value'),
-    firebase.database().ref('descuentosRapidos/'+fechaKey).once('value'),
   ]).then(function(snaps){
     var cierre=snaps[0].exists()?snaps[0].val():{};
-    var restLog=[],descLog=[];
+    var restLog=[];
     if(snaps[1].exists()) snaps[1].forEach(function(c){restLog.push(c.val());});
-    if(snaps[2].exists()) snaps[2].forEach(function(c){descLog.push(c.val());});
 
     var h='<div style="font-size:14px;font-weight:700;color:#333;margin-bottom:12px">'+fechaLabel+'</div>';
 
@@ -4102,7 +4100,8 @@ window.cargarResumenDia = function(){
     }
 
     /* ── Descuentos rápidos del restaurante ── */
-    var todosDesc=restLog.filter(function(l){return l.tipo==='rapido';}).concat(descLog);
+    /* Solo leer restaurante/log con tipo rapido — es donde todos los usuarios guardan */
+    var todosDesc=restLog.filter(function(l){return l.tipo==='rapido';});
     if(todosDesc.length){
       h+='<div style="background:#fce4ec;border-radius:10px;padding:12px;margin-bottom:10px">';
       h+='<div style="font-size:11px;font-weight:700;color:#880E4F;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">⚡ Descuentos Rápidos</div>';
