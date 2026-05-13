@@ -1963,7 +1963,7 @@ function _renderHistConRest(cierres,keys,restLogs){
     /* 2. Turno Mañana */
     if(d.manana){
       h+='<div style="font-size:10px;font-weight:700;color:#E65100;text-transform:uppercase;margin:10px 0 4px">🌅 Turno Mañana — '+d.manana.usuario+' '+d.manana.hora+'</div>';
-      if(currentUser&&(currentUser.rol==='admin'||currentUser.rol==='supervisor'))h+='<button onclick="abrirMoverCierre("'+k+'","manana")" style="font-size:10px;padding:3px 8px;margin:4px 0;border-radius:6px;border:1px solid #E65100;background:transparent;color:#E65100;cursor:pointer">📅 Mover fecha</button>';
+      if(currentUser&&(currentUser.rol==='admin'||currentUser.rol==='supervisor'))h+='<button onclick="abrirMoverCierre("'+k+'","manana")" style="font-size:10px;padding:3px 9px;margin:4px 0 6px;border-radius:6px;border:1px solid #E65100;background:transparent;color:#E65100;cursor:pointer">📅 Mover a otra fecha</button>';
       Object.values(d.manana.productos||{}).forEach(function(p){
         h+='<div class="hist-stat" style="opacity:.8"><span>'+p.nombre+'</span><span>E:'+p.entrada+' S:'+p.salida+' '+p.unidad+'</span></div>';
       });
@@ -1972,7 +1972,7 @@ function _renderHistConRest(cierres,keys,restLogs){
     /* 3. Turno Tarde */
     if(d.tarde){
       h+='<div style="font-size:10px;font-weight:700;color:#1F4E79;text-transform:uppercase;margin:10px 0 4px">🌆 Turno Tarde — '+d.tarde.usuario+' '+d.tarde.hora+'</div>';
-      if(currentUser&&(currentUser.rol==='admin'||currentUser.rol==='supervisor'))h+='<button onclick="abrirMoverCierre("'+k+'","tarde")" style="font-size:10px;padding:3px 8px;margin:4px 0;border-radius:6px;border:1px solid #1B5E20;background:transparent;color:#1B5E20;cursor:pointer">📅 Mover fecha</button>';
+      if(currentUser&&(currentUser.rol==='admin'||currentUser.rol==='supervisor'))h+='<button onclick="abrirMoverCierre("'+k+'","tarde")" style="font-size:10px;padding:3px 9px;margin:4px 0 6px;border-radius:6px;border:1px solid #1B5E20;background:transparent;color:#1B5E20;cursor:pointer">📅 Mover a otra fecha</button>';
       Object.values(d.tarde.productos||{}).forEach(function(p){
         h+='<div class="hist-stat" style="opacity:.8"><span>'+p.nombre+'</span><span>E:'+p.entrada+' S:'+p.salida+' '+p.unidad+'</span></div>';
       });
@@ -4355,9 +4355,6 @@ window.cargarResumenDia = function(){
 })();
 
 
-/* ══════════════════════════════════════════════════════════════════
-   MOVER CIERRE DE TURNO A OTRA FECHA (Admin)
-   ══════════════════════════════════════════════════════════════════ */
 window.abrirMoverCierre = function(fechaOrigen, turno) {
   if(!currentUser || (currentUser.rol !== 'admin' && currentUser.rol !== 'supervisor')) {
     showToast('Solo el administrador puede mover cierres'); return;
@@ -4437,6 +4434,9 @@ window.ejecutarMoverCierre = function(fechaOrigen, turno) {
     showToast('Sin conexión a Firebase');
   }
 };
+</script>
+</body>
+</html>
 </script>
 </body>
 </html>
