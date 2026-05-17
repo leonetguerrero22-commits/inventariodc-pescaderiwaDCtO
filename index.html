@@ -837,8 +837,8 @@ function get(refObj){ return refObj.once('value'); }
 /* ══ INIT ════════════════════════════════════════════════════════════════════ */
 function initDB(){
   S.usuarios  = JSON.parse(JSON.stringify(DEF_USUARIOS));
-  S.insumos   = JSON.parse(JSON.stringify(DEF_INS));
-  S.productos = JSON.parse(JSON.stringify(DEF_PROD));
+  S.insumos   = [];
+  S.productos = []; /* NO cargar DEF_PROD aqui — se filtra con eliminados al llegar de Firebase */
   S.bitacora  = [];
   S.mermas    = [];
   S.cierres   = {};
@@ -853,15 +853,19 @@ function initDB(){
 function loadFromFirebase(){
   firebase.database().ref('inventario').once('value').then(function(snap){
     if(!snap.exists()){
-      /* Primera vez — subir defaults */
+      /* Primera vez — subir defaults respetando eliminados */
       var usrObj = {};
       DEF_USUARIOS.forEach(function(u){ usrObj[u.id] = u; });
-      var prodObj = {};
-      DEF_PROD.forEach(function(p){ prodObj[p.id] = p; });
       firebase.database().ref('inventario/usuarios').set(usrObj);
-      firebase.database().ref('inventario/productos').set(prodObj);
       firebase.database().ref('inventario/bitacora').set({});
       firebase.database().ref('inventario/mermas').set({});
+      /* Productos: respetar lista negra incluso en primera carga */
+      firebase.database().ref('inventario/eliminados').once('value').then(function(snapEl){
+        var eliminados = snapEl.exists() ? snapEl.val() : {};
+        var prodObj = {};
+        DEF_PROD.forEach(function(p){ if(!eliminados[p.id]) prodObj[p.id] = p; });
+        firebase.database().ref('inventario/productos').set(prodObj);
+      });
     }
     syncDot('online');
     subscribeAll();
