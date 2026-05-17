@@ -1273,10 +1273,16 @@ updateBadges=function(){_obVBadge();if(typeof updateBadgeViv==='function')update
 /* ── pushMissingToFirebase ── */
 function pushMissingToFirebase(){
   if(!db||typeof DEF_PROD==='undefined') return;
-  firebase.database().ref('inventario/productos').once('value').then(function(snap){
-    var existing=snap.exists()?Object.keys(snap.val()):[];
-    DEF_PROD.forEach(function(p){
-      if(existing.indexOf(p.id)===-1) firebase.database().ref('inventario/productos/'+p.id).set(p);
+  /* Primero leer eliminados para no resucitar productos borrados */
+  firebase.database().ref('inventario/eliminados').once('value').then(function(snapEl){
+    var eliminados = snapEl.exists() ? snapEl.val() : {};
+    firebase.database().ref('inventario/productos').once('value').then(function(snap){
+      var existing = snap.exists() ? Object.keys(snap.val()) : [];
+      DEF_PROD.forEach(function(p){
+        if(existing.indexOf(p.id)===-1 && !eliminados[p.id]){
+          firebase.database().ref('inventario/productos/'+p.id).set(p);
+        }
+      });
     });
   });
 }
