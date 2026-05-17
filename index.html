@@ -881,6 +881,12 @@ function subscribeAll(){
     if(loginScr && loginScr.style.display !== 'none') renderLoginUsers();
   });
 
+  /* Lista negra de productos eliminados */
+  if(!window.S_ELIMINADOS) window.S_ELIMINADOS = {};
+  firebase.database().ref('inventario/eliminados').on('value', function(snap){
+    window.S_ELIMINADOS = snap.exists() ? snap.val() : {};
+  });
+
   /* Productos */
   firebase.database().ref('inventario/productos').on('value', function(snap){
     var fromDB = snap.exists() ? Object.values(snap.val()) : [];
@@ -898,10 +904,14 @@ function subscribeAll(){
     });
     if(fromDB.length > 0){
       var dbIds = mapped.map(function(p){ return p.id; });
-      var missing = JSON.parse(JSON.stringify(DEF_PROD)).filter(function(p){ return dbIds.indexOf(p.id) === -1; });
+      var missing = JSON.parse(JSON.stringify(DEF_PROD)).filter(function(p){
+        return dbIds.indexOf(p.id) === -1 && !window.S_ELIMINADOS[p.id];
+      });
       S.productos = mapped.concat(missing);
     } else {
-      S.productos = JSON.parse(JSON.stringify(DEF_PROD));
+      S.productos = JSON.parse(JSON.stringify(DEF_PROD)).filter(function(p){
+        return !window.S_ELIMINADOS[p.id];
+      });
     }
     if(currentTab === 'terminados') renderProd();
     if(currentTab === 'dashboard')  renderDash();
@@ -1387,7 +1397,11 @@ window.delViv=function(id){
   if(!canDelete()){showToast('Sin permiso');return;}
   var item=S.productos.find(function(p){return p.id===id;});
   if(!confirm('Eliminar '+((item&&item.nombre)||'?'))) return;
-  fbRemove('inventario/productos/'+id); expViv=null; showToast('Eliminado');
+  fbRemove('inventario/productos/'+id);
+  if(db) firebase.database().ref('inventario/eliminados/'+id).set({id:id,ts:Date.now(),nombre:(item&&item.nombre)||id});
+  if(!window.S_ELIMINADOS) window.S_ELIMINADOS={};
+  window.S_ELIMINADOS[id]=true;
+  expViv=null; showToast('Eliminado');
 };
 function renderViveres(){
   var items=getViv();
@@ -1456,7 +1470,11 @@ window.delProd=function(id){
   if(!canDelete()){showToast('Sin permiso');return;}
   var item=S.productos.find(function(p){return p.id===id;});
   if(!confirm('Eliminar '+((item&&item.nombre)||'?'))) return;
-  fbRemove('inventario/productos/'+id); expProd2=null; showToast('Eliminado');
+  fbRemove('inventario/productos/'+id);
+  if(db) firebase.database().ref('inventario/eliminados/'+id).set({id:id,ts:Date.now(),nombre:(item&&item.nombre)||id});
+  if(!window.S_ELIMINADOS) window.S_ELIMINADOS={};
+  window.S_ELIMINADOS[id]=true;
+  expProd2=null; showToast('Eliminado');
 };
 function renderProd(){
   var items=getMar();
