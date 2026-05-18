@@ -1894,7 +1894,8 @@ function _renderHistConRest(cierres,keys,restLogs){
   var lista=document.getElementById('hist-lista'); if(!lista) return;
   lista.innerHTML=keys.map(function(k){
     var d=cierres[k],fecha=k.replace(/_/g,'-');
-    var restLog=restLogs[k]?Object.values(restLogs[k]):[];
+    var restLogRaw=restLogs[k]||{};
+    var restLog=Object.keys(restLogRaw).map(function(fk){var v=restLogRaw[fk];v._fbKey=fk;return v;});
     var h='<div class="hist-day">';
     h+='<div class="hist-day-hdr" data-k="'+k+'" onclick="togHD(this.dataset.k)">';
     h+='<span>'+fmtF(fecha)+'</span>';
@@ -1961,13 +1962,19 @@ function _renderHistConRest(cierres,keys,restLogs){
       }
       if(rapidos.length){
         h+='<div style="font-size:10px;color:#888;font-weight:600;margin:8px 0 4px">DESCUENTOS RÁPIDOS</div>';
-        var gRap={};
         rapidos.forEach(function(l){
-          if(!gRap[l.nombre])gRap[l.nombre]={nombre:l.nombre,unidad:l.unidad,total:0};
-          gRap[l.nombre].total+=parseFloat(l.cantidad)||0;
-        });
-        Object.values(gRap).forEach(function(r){
-          h+='<div class="hist-stat"><span>'+r.nombre+'</span><span style="color:#B71C1C;font-weight:600">−'+r.total+' '+r.unidad+'</span></div>';
+          var fbKey=l._fbKey||'';
+          var canRevert=currentUser&&(currentUser.rol==='admin'||currentUser.rol==='supervisor');
+          h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f8bbd0;gap:6px">';
+          h+='<div style="flex:1;min-width:0">';
+          h+='<div style="font-size:12px;font-weight:600;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+l.nombre+'</div>';
+          h+='<div style="font-size:10px;color:#aaa">'+(l.hora||'')+(l.usuario?' · '+l.usuario:'')+(l.obs&&l.obs!=='Uso restaurante'?' · '+l.obs:'')+'</div>';
+          h+='</div>';
+          h+='<span style="font-weight:700;color:#B71C1C;white-space:nowrap;font-size:12px">−'+(parseFloat(l.cantidad)||0)+' '+(l.unidad||'')+'</span>';
+          if(canRevert&&fbKey&&l.prodId){
+            h+='<button onclick="revertirDescuentoRapido(\''+k+'\',\''+fbKey+'\',\''+l.prodId+'\','+(parseFloat(l.cantidad)||0)+',\''+l.nombre+'\')" style="flex-shrink:0;padding:3px 8px;border-radius:8px;border:1px solid #E65100;background:#fff3e0;color:#E65100;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">🔄 Revertir</button>';
+          }
+          h+='</div>';
         });
       }
       h+='</div>';
@@ -4315,6 +4322,61 @@ window.cargarResumenDia = function(){
   };
 })();
 
+
+/* ── Revertir Descuento Rápido ── */
+window.revertirDescuentoRapido = function(fechaKey, fbKey, prodId, cantidad, nombre) {
+  if(!currentUser||(currentUser.rol!=='admin'&&currentUser.rol!=='supervisor')){
+    showToast('Solo admin o supervisor puede revertir'); return;
+  }
+  if(!confirm('¿Revertir descuento de '+cantidad+' de '+nombre+'?\n\nEsto devolverá el stock al inventario y eliminará el registro.')){return;}
+
+  if(!db){showToast('Sin conexión a Firebase');return;}
+
+  /* 1. Eliminar de restaurante/log */
+  var refLog = firebase.database().ref('restaurante/log/'+fechaKey+'/'+fbKey);
+  /* 2. Eliminar de descuentosRapidos (misma fechaKey, buscar por prodId+cantidad) */
+  var refRapidos = firebase.database().ref('descuentosRapidos/'+fechaKey);
+
+  /* 3. Devolver stock al producto */
+  var prod = S.productos.find(function(p){return p.id===prodId;});
+
+  var promesas = [refLog.remove()];
+
+  /* Buscar y eliminar en descuentosRapidos el registro que coincida */
+  promesas.push(
+    refRapidos.once('value').then(function(snap){
+      if(!snap.exists()) return;
+      var toDelete=null;
+      snap.forEach(function(c){
+        var v=c.val();
+        if(!toDelete&&v.prodId===prodId&&Math.abs((parseFloat(v.cantidad)||0)-cantidad)<0.001){
+          toDelete=c.key;
+        }
+      });
+      if(toDelete) return firebase.database().ref('descuentosRapidos/'+fechaKey+'/'+toDelete).remove();
+    })
+  );
+
+  /* Devolver stock */
+  if(prod){
+    prod.stock=(prod.stock||0)+cantidad;
+    prod.salida=Math.max(0,(prod.salida||0)-cantidad);
+    promesas.push(
+      firebase.database().ref('inventario/productos/'+prodId).update({stock:prod.stock,salida:prod.salida})
+    );
+  }
+
+  Promise.all(promesas).then(function(){
+    fbLog('edit','🔄 Descuento revertido: '+cantidad+' '+nombre+' del '+fechaKey.replace(/_/g,'-')+' — Admin: '+(currentUser?currentUser.nombre:''));
+    showToast('✅ Descuento revertido — stock devuelto');
+    /* Recargar historial */
+    if(typeof renderHistorial==='function') renderHistorial();
+    /* Si estamos en restaurante también refrescar */
+    if(currentTab==='restaurante'&&typeof renderRestaurante==='function') renderRestaurante();
+  }).catch(function(e){
+    showToast('Error al revertir: '+e.message);
+  });
+};
 
 window.abrirMoverCierre = function(fechaOrigen, turno) {
   if(!currentUser || (currentUser.rol !== 'admin' && currentUser.rol !== 'supervisor')) {
