@@ -4427,7 +4427,7 @@ window.abrirEditarCierre = function(fechaKey, turno) {
   h += '<div class="field-col" style="margin:12px 0 6px"><div class="flabel">Motivo de la corrección (requerido)</div>';
   h += '<input class="finput" id="ec-motivo" placeholder="Ej: Salida de salmon fue del restaurante"></div>';
   h += '<button class="btn-primary" style="background:#1F4E79;margin-top:4px" onclick="guardarEdicionCierre()">💾 Guardar corrección</button>';
-  h += '<button class="btn-primary" style="background:transparent;border:1px solid #ddd;color:#888;margin-top:6px" onclick="closeModal('modal-add')">Cancelar</button>';
+  h += '<button class="btn-primary" style="background:transparent;border:1px solid #ddd;color:#888;margin-top:6px" onclick="closeModal(\'modal-add\')">Cancelar</button>';
 
   body.innerHTML = h;
   openModal('modal-add');
@@ -4572,7 +4572,3 @@ window.ejecutarMoverCierre = function(fechaOrigen, turno) {
 };
 </script>
 </body>
-</html>
-</script>
-</body>
-</html>
