@@ -6,6 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#111111">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>DON CAMARÓN · Inventario</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -617,68 +620,7 @@ function toggleAperturaFull(){
   {id:'u3',nombre:'Empleado',rol:'empleado',emoji:'🦐',pin:'0000',color:'#2E7D32'}
 ];
 var DEF_INS = [];
-var DEF_PROD = [
-  /* ── MARISCOS ── */
-  {id:'p1',nombre:'Conchas',cat:'Mariscos',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p2',nombre:'Almejas limpias',cat:'Mariscos',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p3',nombre:'Mixtura de mariscos',cat:'Mariscos',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p4',nombre:'Bandoja de cazuela',cat:'Mariscos',unidad:'Und',min:2,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p5',nombre:'Langostinos',cat:'Mariscos',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p6',nombre:'Camarones',cat:'Mariscos',unidad:'Gr',min:500,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p7',nombre:'Pulpo',cat:'Mariscos',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p8',nombre:'Calamar',cat:'Mariscos',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p9',nombre:'Cangrejos',cat:'Mariscos',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p10',nombre:'Langosta',cat:'Mariscos',unidad:'Kg',min:0.5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p11',nombre:'Filet de tilapia',cat:'Mariscos',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p12',nombre:'Filet de panga/zuzo',cat:'Mariscos',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p13',nombre:'Camarones enteros',cat:'Mariscos',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p14',nombre:'Cangrejos azules',cat:'Mariscos',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p15',nombre:'Ostras',cat:'Mariscos',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  /* ── PESCADO ── */
-  {id:'p16',nombre:'Filet de salmon',cat:'Pescado',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p17',nombre:'Bandeja de cazuela 500gr',cat:'Pescado',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p18',nombre:'Bandejas de cazuelas 1kg',cat:'Pescado',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p19',nombre:'Salmon en porciones',cat:'Pescado',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p20',nombre:'Trucha salmonada',cat:'Pescado',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p21',nombre:'Wakame',cat:'Pescado',unidad:'Paq',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p22',nombre:'Bolsas al vacio',cat:'Pescado',unidad:'Paq',min:5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p23',nombre:'Bolsas al vacio de 250gr',cat:'Pescado',unidad:'Paq',min:5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  /* ── CONGELADOS ── */
-  {id:'p24',nombre:'Bolsas al vacio 500gr',cat:'Congelados',unidad:'Paq',min:5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p25',nombre:'Bolsas al vacio de 1kg',cat:'Congelados',unidad:'Paq',min:5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p26',nombre:'Salsa siracha 481ml',cat:'Congelados',unidad:'Und',min:3,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p27',nombre:'Massago',cat:'Congelados',unidad:'Und',min:2,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'p28',nombre:'Almejas en concha',cat:'Congelados',unidad:'Kg',min:1,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  /* ── SALSAS ── */
-  {id:'v1',nombre:'Salsa soya verde 148ml',cat:'Salsas',unidad:'Und',min:5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v2',nombre:'Salsa soya roja 148ml',cat:'Salsas',unidad:'Und',min:5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v3',nombre:'Salsa soya verde 290ml',cat:'Salsas',unidad:'Und',min:5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v4',nombre:'Salsa soya roja 290ml',cat:'Salsas',unidad:'Und',min:5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v5',nombre:'Salsa sriracha',cat:'Salsas',unidad:'Und',min:3,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v6',nombre:'Salsa soya litro',cat:'Salsas',unidad:'Und',min:3,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v7',nombre:'Salsa de tilapia',cat:'Salsas',unidad:'Und',min:2,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v8',nombre:'Massago salsa',cat:'Salsas',unidad:'Und',min:2,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  /* ── VIVERES ── */
-  {id:'v9',nombre:'Arroz para sushi',cat:'Viveres',unidad:'Kg',min:5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v10',nombre:'Hojas de nori',cat:'Viveres',unidad:'Paq',min:3,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v11',nombre:'Crema de coco pequena',cat:'Viveres',unidad:'Und',min:4,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v12',nombre:'Crema de coco grande',cat:'Viveres',unidad:'Und',min:2,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v13',nombre:'Caldo de pescado',cat:'Viveres',unidad:'Und',min:3,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v14',nombre:'Wakamen',cat:'Viveres',unidad:'Paq',min:2,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v15',nombre:'Harina PAN',cat:'Viveres',unidad:'Kg',min:5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v16',nombre:'Bolsas de papas',cat:'Viveres',unidad:'Paq',min:5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  /* ── EMPAQUE ── */
-  {id:'v17',nombre:'Bolsas para llevar',cat:'Empaque',unidad:'Paq',min:5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v18',nombre:'Bandojas plastico',cat:'Empaque',unidad:'Paq',min:5,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v19',nombre:'Film plastico',cat:'Empaque',unidad:'Rollo',min:2,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v20',nombre:'Bolsas al vacio empaque',cat:'Empaque',unidad:'Paq',min:3,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  /* ── LIMPIEZA ── */
-  {id:'v21',nombre:'Desengrasante',cat:'Limpieza',unidad:'Lt',min:2,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v22',nombre:'Cloro',cat:'Limpieza',unidad:'Lt',min:2,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v23',nombre:'Jabon de manos',cat:'Limpieza',unidad:'Und',min:2,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v24',nombre:'Guantes desechables',cat:'Limpieza',unidad:'Caja',min:2,stock:0,entrada:0,salida:0,precio:0,costo:0},
-  {id:'v25',nombre:'Hielo',cat:'Limpieza',unidad:'Kg',min:10,stock:0,entrada:0,salida:0,precio:0,costo:0}
-];
+var DEF_PROD = [];
 
 
 /* ══ CONFIG ══════════════════════════════════════════════════════════════════ */
@@ -1193,7 +1135,6 @@ function doLogin(){
   fbLog('login', user.nombre + ' inicio sesion');
   showApp();
   goTab('dashboard');
-  if(typeof pushMissingToFirebase === 'function') pushMissingToFirebase();
   if(typeof applyRoleUI === 'function'){ applyRoleUI(); document.body.className = 'rol-' + (user.rol||'empleado'); }
 }
 
@@ -1274,22 +1215,8 @@ function updateBadgeViv(){
 var _obVBadge=updateBadges;
 updateBadges=function(){_obVBadge();if(typeof updateBadgeViv==='function')updateBadgeViv();};
 
-/* ── pushMissingToFirebase ── */
-function pushMissingToFirebase(){
-  if(!db||typeof DEF_PROD==='undefined') return;
-  /* Primero leer eliminados para no resucitar productos borrados */
-  firebase.database().ref('inventario/eliminados').once('value').then(function(snapEl){
-    var eliminados = snapEl.exists() ? snapEl.val() : {};
-    firebase.database().ref('inventario/productos').once('value').then(function(snap){
-      var existing = snap.exists() ? Object.keys(snap.val()) : [];
-      DEF_PROD.forEach(function(p){
-        if(existing.indexOf(p.id)===-1 && !eliminados[p.id]){
-          firebase.database().ref('inventario/productos/'+p.id).set(p);
-        }
-      });
-    });
-  });
-}
+/* ── pushMissingToFirebase ── DESACTIVADA: no reinserta defaults borrados */
+function pushMissingToFirebase(){ /* desactivada intencionalmente */ }
 
 /* ── ROLE CONTROL ── */
 /* ══ SISTEMA DE PERMISOS DINÁMICOS ══════════════════════════════════════════ */
@@ -2761,7 +2688,6 @@ function doLogin(pin){
   if(pillName) pillName.textContent=user.nombre;
   if(pillRole) pillRole.textContent=ROL_LBL[user.rol]||user.rol;
   fbLog('login', user.nombre+' inicio sesion');
-  if(typeof pushMissingToFirebase==='function') pushMissingToFirebase();
   if(typeof applyRoleUI==='function') applyRoleUI();
   document.body.className='rol-'+(user.rol||'empleado');
   showApp();
