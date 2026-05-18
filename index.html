@@ -1926,7 +1926,7 @@ function _renderHistConRest(cierres,keys,restLogs){
     /* 2. Turno Mañana */
     if(d.manana){
       h+='<div style="font-size:10px;font-weight:700;color:#E65100;text-transform:uppercase;margin:10px 0 4px">🌅 Turno Mañana — '+d.manana.usuario+' '+d.manana.hora+'</div>';
-      if(currentUser&&(currentUser.rol==='admin'||currentUser.rol==='supervisor'))h+='<button onclick="abrirMoverCierre(\''+k+'\',\'manana\')\" style="font-size:10px;padding:3px 9px;margin:4px 0 6px;border-radius:6px;border:1px solid #E65100;background:transparent;color:#E65100;cursor:pointer">📅 Mover a otra fecha</button>';
+      if(currentUser&&(currentUser.rol==='admin'||currentUser.rol==='supervisor')){h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 6px">';h+='<button onclick="abrirMoverCierre(\''+k+'\',\'manana\')" style="font-size:10px;padding:3px 9px;border-radius:6px;border:1px solid #E65100;background:transparent;color:#E65100;cursor:pointer">📅 Mover a otra fecha</button>';h+='<button onclick="abrirEditarCierre(\''+k+'\',\'manana\')" style="font-size:10px;padding:3px 9px;border-radius:6px;border:1px solid #1F4E79;background:#e8f0fe;color:#1F4E79;cursor:pointer;font-weight:700">✏️ Editar cierre</button>';h+='</div>';}
       Object.values(d.manana.productos||{}).forEach(function(p){
         h+='<div class="hist-stat" style="opacity:.8"><span>'+p.nombre+'</span><span>E:'+p.entrada+' S:'+p.salida+' '+p.unidad+'</span></div>';
       });
@@ -1935,7 +1935,7 @@ function _renderHistConRest(cierres,keys,restLogs){
     /* 3. Turno Tarde */
     if(d.tarde){
       h+='<div style="font-size:10px;font-weight:700;color:#1F4E79;text-transform:uppercase;margin:10px 0 4px">🌆 Turno Tarde — '+d.tarde.usuario+' '+d.tarde.hora+'</div>';
-      if(currentUser&&(currentUser.rol==='admin'||currentUser.rol==='supervisor'))h+='<button onclick="abrirMoverCierre(\''+k+'\',\'tarde\')\" style="font-size:10px;padding:3px 9px;margin:4px 0 6px;border-radius:6px;border:1px solid #1B5E20;background:transparent;color:#1B5E20;cursor:pointer">📅 Mover a otra fecha</button>';
+      if(currentUser&&(currentUser.rol==='admin'||currentUser.rol==='supervisor')){h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 6px">';h+='<button onclick="abrirMoverCierre(\''+k+'\',\'tarde\')" style="font-size:10px;padding:3px 9px;border-radius:6px;border:1px solid #E65100;background:transparent;color:#E65100;cursor:pointer">📅 Mover a otra fecha</button>';h+='<button onclick="abrirEditarCierre(\''+k+'\',\'tarde\')" style="font-size:10px;padding:3px 9px;border-radius:6px;border:1px solid #1F4E79;background:#e8f0fe;color:#1F4E79;cursor:pointer;font-weight:700">✏️ Editar cierre</button>';h+='</div>';}
       Object.values(d.tarde.productos||{}).forEach(function(p){
         h+='<div class="hist-stat" style="opacity:.8"><span>'+p.nombre+'</span><span>E:'+p.entrada+' S:'+p.salida+' '+p.unidad+'</span></div>';
       });
@@ -4377,6 +4377,116 @@ window.revertirDescuentoRapido = function(fechaKey, fbKey, prodId, cantidad, nom
     if(currentTab==='restaurante'&&typeof renderRestaurante==='function') renderRestaurante();
   }).catch(function(e){
     showToast('Error al revertir: '+e.message);
+  });
+};
+
+
+/* ── Editar Cierre de Turno ── */
+window.abrirEditarCierre = function(fechaKey, turno) {
+  if(!currentUser||(currentUser.rol!=='admin'&&currentUser.rol!=='supervisor')){
+    showToast('Solo admin o supervisor puede editar cierres'); return;
+  }
+  var cierre = S.cierres && S.cierres[fechaKey];
+  var datos = cierre ? cierre[turno] : null;
+  if(!datos){ showToast('No se encontró el cierre'); return; }
+
+  var modal = document.getElementById('modal-add');
+  var title = document.getElementById('modal-add-title');
+  var body  = document.getElementById('modal-add-body');
+  if(!modal||!title||!body) return;
+
+  var turnoLabel = turno==='manana' ? '🌅 Turno Mañana' : '🌆 Turno Tarde';
+  var fecha = fechaKey.replace(/_/g,'-');
+  title.textContent = '✏️ Editar ' + turnoLabel;
+
+  var prods = Object.entries(datos.productos||{});
+  var h = '';
+  h += '<div style="background:#fff3e0;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#7a4f10;border:1px solid #ffe0b2">';
+  h += '⚠️ Corriges las cantidades de entrada y salida. El stock se ajusta automáticamente por la diferencia.';
+  h += '</div>';
+  h += '<div style="font-size:11px;color:#888;margin-bottom:10px">📅 '+fecha+' · '+datos.usuario+' · '+datos.hora+'</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 64px 64px;gap:4px;margin-bottom:8px">';
+  h += '<div style="font-size:10px;font-weight:700;color:#888">PRODUCTO</div>';
+  h += '<div style="font-size:10px;font-weight:700;color:#1E5631;text-align:center">ENTRADA</div>';
+  h += '<div style="font-size:10px;font-weight:700;color:#B71C1C;text-align:center">SALIDA</div>';
+  h += '</div>';
+
+  prods.forEach(function(entry, i){
+    var pid = entry[0], p = entry[1];
+    h += '<div style="display:grid;grid-template-columns:1fr 64px 64px;gap:4px;margin-bottom:6px;align-items:center" data-pid="'+pid+'" data-orig-e="'+(p.entrada||0)+'" data-orig-s="'+(p.salida||0)+'">';
+    h += '<div style="font-size:12px;color:#333;font-weight:600">'+p.nombre+'<span style="font-size:10px;color:#aaa;font-weight:400"> '+p.unidad+'</span></div>';
+    h += '<input id="ec-e-'+i+'" type="number" min="0" step="0.01" value="'+(p.entrada||0)+'" style="border:1px solid #c8e6c9;border-radius:8px;padding:5px;font-size:12px;text-align:center;font-family:inherit;background:#f1f8e9;width:100%">';
+    h += '<input id="ec-s-'+i+'" type="number" min="0" step="0.01" value="'+(p.salida||0)+'" style="border:1px solid #ffcdd2;border-radius:8px;padding:5px;font-size:12px;text-align:center;font-family:inherit;background:#fff3e0;width:100%">';
+    h += '</div>';
+  });
+
+  h += '<div class="field-col" style="margin:12px 0 6px"><div class="flabel">Motivo de la corrección (requerido)</div>';
+  h += '<input class="finput" id="ec-motivo" placeholder="Ej: Salida de salmon fue descontada por restaurante"></div>';
+  h += '<button class="btn-primary" style="background:#1F4E79" onclick="guardarEdicionCierre(''+fechaKey+'',''+turno+'','+JSON.stringify(prods.map(function(e){return {pid:e[0],p:e[1]};}))+')" >💾 Guardar corrección</button>';
+  h += '<button class="btn-primary" style="background:transparent;border:1px solid #ddd;color:#888;margin-top:6px" onclick="closeModal('modal-add')">Cancelar</button>';
+
+  body.innerHTML = h;
+  openModal('modal-add');
+};
+
+window.guardarEdicionCierre = function(fechaKey, turno, prodsOrig) {
+  var motivo = ((document.getElementById('ec-motivo')||{}).value||'').trim();
+  if(!motivo){ showToast('Ingresa el motivo de la corrección'); return; }
+  if(!db){ showToast('Sin conexión a Firebase'); return; }
+
+  var cierre = S.cierres && S.cierres[fechaKey];
+  var datos = cierre ? cierre[turno] : null;
+  if(!datos){ showToast('No se encontró el cierre'); return; }
+
+  var nuevosProds = {};
+  var ajustesStock = [];
+
+  prodsOrig.forEach(function(entry, i){
+    var pid = entry.pid, p = entry.p;
+    var nuevoE = parseFloat((document.getElementById('ec-e-'+i)||{}).value)||0;
+    var nuevoS = parseFloat((document.getElementById('ec-s-'+i)||{}).value)||0;
+    var difE = nuevoE - (p.entrada||0);
+    var difS = nuevoS - (p.salida||0);
+    nuevosProds[pid] = {nombre:p.nombre, unidad:p.unidad, entrada:nuevoE, salida:nuevoS};
+    if(difE !== 0 || difS !== 0){
+      ajustesStock.push({pid:pid, nombre:p.nombre, unidad:p.unidad, difE:difE, difS:difS});
+    }
+  });
+
+  /* 1. Actualizar el cierre en Firebase */
+  datos.productos = nuevosProds;
+  datos._editado = {por: currentUser?currentUser.nombre:'', motivo:motivo, ts:Date.now()};
+
+  firebase.database().ref('cierres/'+fechaKey+'/'+turno).set(datos).then(function(){
+    /* 2. Ajustar stock de cada producto afectado */
+    var promises = ajustesStock.map(function(aj){
+      var prod = S.productos.find(function(p){return p.id===aj.pid;});
+      if(!prod) return Promise.resolve();
+      /* entrada sube stock, salida lo baja */
+      prod.stock = Math.max(0, (prod.stock||0) + aj.difE - aj.difS);
+      prod.salida = Math.max(0, (prod.salida||0) + aj.difS);
+      prod.entrada = Math.max(0, (prod.entrada||0) + aj.difE);
+      return firebase.database().ref('inventario/productos/'+aj.pid).update({
+        stock: prod.stock, salida: prod.salida, entrada: prod.entrada
+      });
+    });
+
+    return Promise.all(promises);
+  }).then(function(){
+    /* 3. Log en bitácora */
+    var resumen = ajustesStock.map(function(aj){
+      return aj.nombre+' (E:'+(aj.difE>=0?'+':'')+aj.difE.toFixed(0)+' S:'+(aj.difS>=0?'+':'')+aj.difS.toFixed(0)+')';
+    }).join(', ');
+    fbLog('edit', '✏️ Cierre editado: '+turno+' '+fechaKey.replace(/_/g,'-')+' · '+motivo+(resumen?' · '+resumen:''));
+    if(!S.cierres) S.cierres={};
+    if(!S.cierres[fechaKey]) S.cierres[fechaKey]={};
+    S.cierres[fechaKey][turno] = datos;
+    showToast('✅ Cierre corregido y stock ajustado');
+    closeModal('modal-add');
+    renderHistorial();
+    if(currentTab==='dashboard'&&typeof renderDashboard==='function') renderDashboard();
+  }).catch(function(e){
+    showToast('Error: '+e.message);
   });
 };
 
