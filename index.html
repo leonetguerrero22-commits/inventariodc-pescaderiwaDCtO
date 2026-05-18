@@ -2582,10 +2582,12 @@ function renderUsuariosMgmt(){
     h+='<div style="width:48px;height:48px;border-radius:50%;background:'+(u.color||ROL_CLR[u.rol]||'#888')+';display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">'+u.emoji+'</div>';
     h+='<div style="flex:1"><div style="font-weight:700;font-size:14px">'+u.nombre+(isSelf?' <span style="font-size:10px;color:#888">(tu)</span>':'')+'</div>';
     h+='<div style="font-size:12px;color:var(--color-text-tertiary);margin-top:2px">'+(ROL_LBL[u.rol]||u.rol)+' &middot; PIN: ****</div></div>';
-    if(isAdm&&!isSelf){
+    if(isAdm){
       h+='<div style="display:flex;flex-direction:column;gap:6px">';
       h+='<button data-uid="'+u.id+'" onclick="abrirEditUsuario(this.dataset.uid)" style="padding:6px 12px;border-radius:8px;border:none;background:#1F4E79;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">Editar</button>';
-      h+='<button data-uid="'+u.id+'" onclick="eliminarUsuario(this.dataset.uid)" style="padding:6px 12px;border-radius:8px;border:none;background:#B71C1C;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">Eliminar</button>';
+      if(!isSelf){
+        h+='<button data-uid="'+u.id+'" onclick="eliminarUsuario(this.dataset.uid)" style="padding:6px 12px;border-radius:8px;border:none;background:#B71C1C;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">Eliminar</button>';
+      }
       h+='</div>';
     }
     h+='</div>'; return h;
