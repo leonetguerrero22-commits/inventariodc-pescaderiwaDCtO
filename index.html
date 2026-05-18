@@ -4382,6 +4382,8 @@ window.revertirDescuentoRapido = function(fechaKey, fbKey, prodId, cantidad, nom
 
 
 /* ── Editar Cierre de Turno ── */
+var _editCierreCtx = {};
+
 window.abrirEditarCierre = function(fechaKey, turno) {
   if(!currentUser||(currentUser.rol!=='admin'&&currentUser.rol!=='supervisor')){
     showToast('Solo admin o supervisor puede editar cierres'); return;
@@ -4395,16 +4397,18 @@ window.abrirEditarCierre = function(fechaKey, turno) {
   var body  = document.getElementById('modal-add-body');
   if(!modal||!title||!body) return;
 
+  var prods = Object.entries(datos.productos||{});
+  _editCierreCtx = {fechaKey:fechaKey, turno:turno, prods:prods.map(function(e){return {pid:e[0],p:e[1]};})};
+
   var turnoLabel = turno==='manana' ? '🌅 Turno Mañana' : '🌆 Turno Tarde';
   var fecha = fechaKey.replace(/_/g,'-');
   title.textContent = '✏️ Editar ' + turnoLabel;
 
-  var prods = Object.entries(datos.productos||{});
   var h = '';
   h += '<div style="background:#fff3e0;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#7a4f10;border:1px solid #ffe0b2">';
-  h += '⚠️ Corriges las cantidades de entrada y salida. El stock se ajusta automáticamente por la diferencia.';
+  h += '⚠️ Corrige las cantidades. El stock se ajusta por la diferencia automáticamente.';
   h += '</div>';
-  h += '<div style="font-size:11px;color:#888;margin-bottom:10px">📅 '+fecha+' · '+datos.usuario+' · '+datos.hora+'</div>';
+  h += '<div style="font-size:11px;color:#888;margin-bottom:10px">📅 '+fecha+' · '+(datos.usuario||'')+' · '+(datos.hora||'')+'</div>';
   h += '<div style="display:grid;grid-template-columns:1fr 64px 64px;gap:4px;margin-bottom:8px">';
   h += '<div style="font-size:10px;font-weight:700;color:#888">PRODUCTO</div>';
   h += '<div style="font-size:10px;font-weight:700;color:#1E5631;text-align:center">ENTRADA</div>';
@@ -4412,8 +4416,8 @@ window.abrirEditarCierre = function(fechaKey, turno) {
   h += '</div>';
 
   prods.forEach(function(entry, i){
-    var pid = entry[0], p = entry[1];
-    h += '<div style="display:grid;grid-template-columns:1fr 64px 64px;gap:4px;margin-bottom:6px;align-items:center" data-pid="'+pid+'" data-orig-e="'+(p.entrada||0)+'" data-orig-s="'+(p.salida||0)+'">';
+    var p = entry[1];
+    h += '<div style="display:grid;grid-template-columns:1fr 64px 64px;gap:4px;margin-bottom:6px;align-items:center">';
     h += '<div style="font-size:12px;color:#333;font-weight:600">'+p.nombre+'<span style="font-size:10px;color:#aaa;font-weight:400"> '+p.unidad+'</span></div>';
     h += '<input id="ec-e-'+i+'" type="number" min="0" step="0.01" value="'+(p.entrada||0)+'" style="border:1px solid #c8e6c9;border-radius:8px;padding:5px;font-size:12px;text-align:center;font-family:inherit;background:#f1f8e9;width:100%">';
     h += '<input id="ec-s-'+i+'" type="number" min="0" step="0.01" value="'+(p.salida||0)+'" style="border:1px solid #ffcdd2;border-radius:8px;padding:5px;font-size:12px;text-align:center;font-family:inherit;background:#fff3e0;width:100%">';
@@ -4421,19 +4425,22 @@ window.abrirEditarCierre = function(fechaKey, turno) {
   });
 
   h += '<div class="field-col" style="margin:12px 0 6px"><div class="flabel">Motivo de la corrección (requerido)</div>';
-  h += '<input class="finput" id="ec-motivo" placeholder="Ej: Salida de salmon fue descontada por restaurante"></div>';
-  h += '<button class="btn-primary" style="background:#1F4E79" onclick="guardarEdicionCierre(''+fechaKey+'',''+turno+'','+JSON.stringify(prods.map(function(e){return {pid:e[0],p:e[1]};}))+')" >💾 Guardar corrección</button>';
+  h += '<input class="finput" id="ec-motivo" placeholder="Ej: Salida de salmon fue del restaurante"></div>';
+  h += '<button class="btn-primary" style="background:#1F4E79;margin-top:4px" onclick="guardarEdicionCierre()">💾 Guardar corrección</button>';
   h += '<button class="btn-primary" style="background:transparent;border:1px solid #ddd;color:#888;margin-top:6px" onclick="closeModal('modal-add')">Cancelar</button>';
 
   body.innerHTML = h;
   openModal('modal-add');
 };
 
-window.guardarEdicionCierre = function(fechaKey, turno, prodsOrig) {
+window.guardarEdicionCierre = function() {
+  var ctx = _editCierreCtx;
+  if(!ctx||!ctx.fechaKey){ showToast('Error: recarga e intenta de nuevo'); return; }
   var motivo = ((document.getElementById('ec-motivo')||{}).value||'').trim();
   if(!motivo){ showToast('Ingresa el motivo de la corrección'); return; }
   if(!db){ showToast('Sin conexión a Firebase'); return; }
 
+  var fechaKey = ctx.fechaKey, turno = ctx.turno, prodsOrig = ctx.prods;
   var cierre = S.cierres && S.cierres[fechaKey];
   var datos = cierre ? cierre[turno] : null;
   if(!datos){ showToast('No se encontró el cierre'); return; }
@@ -4453,41 +4460,35 @@ window.guardarEdicionCierre = function(fechaKey, turno, prodsOrig) {
     }
   });
 
-  /* 1. Actualizar el cierre en Firebase */
   datos.productos = nuevosProds;
   datos._editado = {por: currentUser?currentUser.nombre:'', motivo:motivo, ts:Date.now()};
 
   firebase.database().ref('cierres/'+fechaKey+'/'+turno).set(datos).then(function(){
-    /* 2. Ajustar stock de cada producto afectado */
     var promises = ajustesStock.map(function(aj){
       var prod = S.productos.find(function(p){return p.id===aj.pid;});
       if(!prod) return Promise.resolve();
-      /* entrada sube stock, salida lo baja */
-      prod.stock = Math.max(0, (prod.stock||0) + aj.difE - aj.difS);
-      prod.salida = Math.max(0, (prod.salida||0) + aj.difS);
+      prod.stock   = Math.max(0, (prod.stock||0)   + aj.difE - aj.difS);
+      prod.salida  = Math.max(0, (prod.salida||0)  + aj.difS);
       prod.entrada = Math.max(0, (prod.entrada||0) + aj.difE);
       return firebase.database().ref('inventario/productos/'+aj.pid).update({
         stock: prod.stock, salida: prod.salida, entrada: prod.entrada
       });
     });
-
     return Promise.all(promises);
   }).then(function(){
-    /* 3. Log en bitácora */
     var resumen = ajustesStock.map(function(aj){
       return aj.nombre+' (E:'+(aj.difE>=0?'+':'')+aj.difE.toFixed(0)+' S:'+(aj.difS>=0?'+':'')+aj.difS.toFixed(0)+')';
     }).join(', ');
-    fbLog('edit', '✏️ Cierre editado: '+turno+' '+fechaKey.replace(/_/g,'-')+' · '+motivo+(resumen?' · '+resumen:''));
+    fbLog('edit','✏️ Cierre editado: '+turno+' '+fechaKey.replace(/_/g,'-')+' · '+motivo+(resumen?' · '+resumen:''));
     if(!S.cierres) S.cierres={};
     if(!S.cierres[fechaKey]) S.cierres[fechaKey]={};
     S.cierres[fechaKey][turno] = datos;
+    _editCierreCtx = {};
     showToast('✅ Cierre corregido y stock ajustado');
     closeModal('modal-add');
     renderHistorial();
-    if(currentTab==='dashboard'&&typeof renderDashboard==='function') renderDashboard();
-  }).catch(function(e){
-    showToast('Error: '+e.message);
-  });
+    if(typeof renderDashboard==='function') renderDashboard();
+  }).catch(function(e){ showToast('Error: '+e.message); });
 };
 
 window.abrirMoverCierre = function(fechaOrigen, turno) {
