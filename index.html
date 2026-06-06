@@ -3052,7 +3052,7 @@ function renderVentas(){
   var ventaBrutaHoy  = registroHoy ? (registroHoy.ventaBruta||0)  : 0;
   var totalIngHoy    = registroHoy ? (registroHoy.totalVentas||0) : 0;
   var totalGastosHoy = registroHoy ? (registroHoy.totalGastos||0) : 0;
-  var utilidadHoy    = totalIngHoy - totalGastosHoy;
+  var utilidadHoy    = ventaBrutaHoy - totalGastosHoy;
 
   var h = '';
 
@@ -3072,7 +3072,7 @@ function renderVentas(){
   h += '<div class="kpi-box" style="grid-column:span 2"><div class="kpi-val" style="color:#1F4E79;font-size:18px">'+fmtCOP(ventaBrutaHoy)+'</div><div class="kpi-lbl">💰 TOTAL VENTAS DEL DÍA</div></div>';
   h += '<div class="kpi-box"><div class="kpi-val" style="color:#1E5631">'+fmtCOP(totalIngHoy)+'</div><div class="kpi-lbl">💵 INGRESOS</div></div>';
   h += '<div class="kpi-box"><div class="kpi-val" style="color:#B71C1C">'+fmtCOP(totalGastosHoy)+'</div><div class="kpi-lbl">📊 EGRESOS</div></div>';
-  h += '<div class="kpi-box" style="grid-column:span 2"><div class="kpi-val" style="color:'+(utilidadHoy>=0?'#1E5631':'#B71C1C')+'">'+fmtCOP(utilidadHoy)+'</div><div class="kpi-lbl">💹 UTILIDAD (Ingresos − Egresos)</div></div>';
+  h += '<div class="kpi-box" style="grid-column:span 2"><div class="kpi-val" style="color:'+(utilidadHoy>=0?'#1E5631':'#B71C1C')+'">'+fmtCOP(utilidadHoy)+'</div><div class="kpi-lbl">💹 UTILIDAD (Ventas − Egresos)</div></div>';
   h += '</div>';
 
   /* ── Formulario de cierre diario ── */
@@ -3214,7 +3214,7 @@ function renderVentas(){
       var vb  = reg.ventaBruta||0;
       var tv  = reg.totalVentas||0;
       var tg  = reg.totalGastos||0;
-      var util = tv - tg;
+      var util = vb - tg;
       var utilColor = util>=0?'#1E5631':'#B71C1C';
 
       h += '<div class="hist-day">';
@@ -3334,7 +3334,7 @@ function calcResumenPeriodo(){
     tot.dias++;
   });
 
-  var util = tot.totalVentas - tot.totalGastos;
+  var util = tot.ventaBruta - tot.totalGastos;
   var etiqueta = {semana:'Esta semana',semana_ant:'Semana pasada',mes:'Este mes',custom:'Período seleccionado'}[_periodoActual]||'';
   var subtitulo = desdeKey === hastaKey ? desdeKey : desdeKey+' → '+hastaKey;
 
@@ -3345,7 +3345,7 @@ function calcResumenPeriodo(){
   r += '<div class="kpi-box" style="grid-column:span 2"><div class="kpi-val" style="color:#1F4E79;font-size:18px">'+fmtCOP(tot.ventaBruta)+'</div><div class="kpi-lbl">💰 TOTAL VENTAS (POS)</div></div>';
   r += '<div class="kpi-box"><div class="kpi-val" style="color:#1E5631;font-size:16px">'+fmtCOP(tot.totalVentas)+'</div><div class="kpi-lbl">💵 TOTAL INGRESOS</div></div>';
   r += '<div class="kpi-box"><div class="kpi-val" style="color:#B71C1C;font-size:16px">'+fmtCOP(tot.totalGastos)+'</div><div class="kpi-lbl">📊 TOTAL EGRESOS</div></div>';
-  r += '<div class="kpi-box" style="grid-column:span 2"><div class="kpi-val" style="color:'+(util>=0?'#1E5631':'#B71C1C')+';font-size:18px">'+fmtCOP(util)+'</div><div class="kpi-lbl">💹 UTILIDAD NETA (Ingresos − Egresos)</div></div>';
+  r += '<div class="kpi-box" style="grid-column:span 2"><div class="kpi-val" style="color:'+(util>=0?'#1E5631':'#B71C1C')+';font-size:18px">'+fmtCOP(util)+'</div><div class="kpi-lbl">💹 UTILIDAD NETA (Ventas − Egresos)</div></div>';
   r += '</div>';
 
   /* Desglose ingresos por forma de pago */
@@ -3446,7 +3446,7 @@ function calcVentasTotales(){
   var totalIngresos = v('v-ef_cop') + ef_usd_cop + ef_ves_cop + v('v-nequi') + v('v-bancol') + zelle_cop + v('v-otros');
   var totalGastos   = v('g-insumos')+v('g-bebidas')+v('g-empaques')+v('g-nomina')+v('g-domicilios')+v('g-servicios')+v('g-aseo')+v('g-publicidad')+v('g-mant')+v('g-otros');
   var ventaBruta    = v('v-venta-bruta');
-  var utilidad      = totalIngresos - totalGastos;
+  var utilidad      = ventaBruta - totalGastos;
 
   var tvEl = document.getElementById('total-ventas-cop');
   var tgEl = document.getElementById('total-gastos-cop');
@@ -3498,7 +3498,7 @@ function guardarVentasDia(){
     tasas: tasas, ventas: ventas, gastos: gastos,
     ventaBruta: Math.round(ventaBruta),
     totalVentas: Math.round(totalVentas), totalGastos: Math.round(totalGastos),
-    utilidad: Math.round(totalVentas-totalGastos), notas: notas,
+    utilidad: Math.round(ventaBruta-totalGastos), notas: notas,
     creadoPor: currentUser ? currentUser.nombre : 'Sistema',
     registradoEl: hoy() !== fechaGuardar ? 'Registrado el '+hoy()+' (día anterior)' : ''
   };
@@ -3548,20 +3548,22 @@ function exportarVentasExcel(){
     var v = reg ? (reg.ventas||{}) : {};
     var g = reg ? (reg.gastos||{}) : {};
     var tv = reg ? (reg.totalVentas||0) : 0;
+    var vb = reg ? (reg.ventaBruta||0) : 0;
     var tg = reg ? (reg.totalGastos||0) : 0;
     totalVentas += tv; totalGastos += tg;
+    var totalVentaBruta = (typeof totalVentaBruta !== 'undefined' ? totalVentaBruta : 0) + vb;
     rows.push([
       d, diaSem,
       v.ef_usd||0, v.ef_cop||0, v.ef_ves||0, v.nequi||0, v.bancol||0, v.zelle||0, v.otros||0,
       tv, '',
       g.insumos||0, g.bebidas||0, g.empaques||0, g.nomina||0, g.domicilios||0,
       g.servicios||0, g.aseo||0, g.publicidad||0, g.mant||0, g.otros||0,
-      tg, tv-tg, reg&&reg.notas?reg.notas:''
+      tg, vb-tg, reg&&reg.notas?reg.notas:''
     ]);
   }
 
   rows.push([]);
-  rows.push(['TOTALES DEL MES','','','','','','','','',totalVentas,'','','','','','','','','','','',totalGastos, totalVentas-totalGastos,'']);
+  rows.push(['TOTALES DEL MES','','','','','','','','',totalVentas,'','','','','','','','','','','',totalGastos, totalVentaBruta-totalGastos,'']);
   rows.push([]);
   rows.push(['TASA USD usada: $'+tasas.usd+' COP por dólar  |  TASA Bs usada: $'+tasas.ves+' COP por bolívar']);
 
@@ -3849,7 +3851,7 @@ window.guardarEdicionDia = function(fecha){
     gastos: gastos,
     totalVentas: Math.round(totalVentas),
     totalGastos: Math.round(totalGastos),
-    utilidad: Math.round(totalVentas - totalGastos),
+    utilidad: Math.round((regActual.ventaBruta||0) - totalGastos),
     ultimaEdicion: {
       fecha: hoy(),
       hora: new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}),
