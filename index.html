@@ -1681,9 +1681,21 @@ function guardarTurno(turno){
   if(db){
     firebase.database().ref('cierres/'+key+'/'+turno).set(data);
     for(var pid in sp){var p2=S.productos.find(function(p){return p.id===pid;});
-      if(p2){if(sp[pid].entrada)p2.entrada=(p2.entrada||0)+sp[pid].entrada;
+      if(p2){
+        var entAntes2=p2.entrada||0;
+        if(sp[pid].entrada)p2.entrada=(p2.entrada||0)+sp[pid].entrada;
         if(sp[pid].salida){p2.salida=(p2.salida||0)+sp[pid].salida;p2.stock=Math.max(0,(p2.stock||0)-sp[pid].salida);}
-        firebase.database().ref('inventario/productos/'+pid).update({entrada:p2.entrada,salida:p2.salida,stock:p2.stock});}
+        firebase.database().ref('inventario/productos/'+pid).update({entrada:p2.entrada,salida:p2.salida,stock:p2.stock});
+        if(sp[pid].entrada>0){
+          firebase.database().ref('inventario/historial_ingresos').push({
+            productoId:pid, productoNombre:p2.nombre, categoria:p2.cat||'',
+            entradaAntes:entAntes2, entradaNueva:p2.entrada, diferencia:sp[pid].entrada,
+            unidad:p2.unidad||'', costo:p2.costo||0, precio:p2.precio||0,
+            usuario:currentUser?currentUser.nombre:'', userEmoji:currentUser?currentUser.emoji||'':'',
+            ts:Date.now(), fecha:fecha, origen:'Cierre de turno ('+(turno==='manana'?'Mañana':'Tarde')+')'
+          });
+        }
+      }
     }
   }
   if(!S.cierres)S.cierres={};if(!S.cierres[key])S.cierres[key]={};S.cierres[key][turno]=data;
