@@ -417,6 +417,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--negro);color:var(--negro)
 
       <div class="sec-hdr">⚠️ Alertas de <span>Stock</span></div>
       <div id="alertas-dash"></div>
+      <div id="top5-valor-venta"></div>
+      <button onclick="abrirHistorialIngresos()" style="width:100%;margin-top:14px;padding:13px;border-radius:14px;border:none;background:linear-gradient(135deg,#1F4E79,#2E86AB);color:#fff;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.3px">📦 Historial de Ingresos al Inventario</button>
     </div>
     <!-- INSUMOS -->
     <div id="tab-insumos" class="tab-panel">
@@ -652,7 +654,7 @@ function stIns(i){
   return i.cant<=0?'empty':i.cant<=i.min?'reponer':'ok';
 }
 function fmt$(n){
-  return '$'+Number(n||0).toFixed(2);
+  return '$ ' + Math.round(Number(n||0)).toLocaleString('es-CO');
 }
 function fmtTs(ts){
   if(!ts) return '';
@@ -942,7 +944,7 @@ function nowStr(){
 }
 
 function fmt$(n){
-  return '$' + Number(n || 0).toFixed(2);
+  return '$ ' + Math.round(Number(n||0)).toLocaleString('es-CO');
 }
 
 function fmtTs(ts){
@@ -1335,7 +1337,17 @@ window.saveViv=function(id){
   var upd=Object.assign({},item,{entrada:ent,salida:sal,stock:Math.max(0,ent-sal),unidad:uni,min:mn,precio:pr,costo:co,
     mod:{userId:currentUser.id,userName:currentUser.nombre,emoji:currentUser.emoji,time:nowStr()}});
   fbSet('inventario/productos/'+id,upd);
-  fbLog('edit','Edito vivere: '+item.nombre); expViv=null; showToast('Guardado');
+  var entAntes=item.entrada||0;
+  if(ent!==entAntes){
+    firebase.database().ref('inventario/historial_ingresos').push({
+      productoId:id, productoNombre:item.nombre, categoria:item.cat||'',
+      entradaAntes:entAntes, entradaNueva:ent, diferencia:ent-entAntes,
+      unidad:uni, costo:co, precio:pr,
+      usuario:currentUser.nombre, userEmoji:currentUser.emoji||'',
+      ts:Date.now(), fecha:hoy()
+    });
+  }
+  fbLog('edit','Edito vivere: '+item.nombre+' | Entrada: '+entAntes+' -> '+ent); expViv=null; showToast('Guardado');
 };
 window.delViv=function(id){
   if(!canDelete()){showToast('Sin permiso');return;}
@@ -1408,7 +1420,18 @@ window.saveProd=function(id){
   var co=parseFloat((document.getElementById('pc-costo-'+id)||{}).value)||0;
   var upd=Object.assign({},item,{entrada:ent,salida:sal,stock:Math.max(0,ent-sal),unidad:uni,min:mn,precio:pr,costo:co,
     mod:{userId:currentUser.id,userName:currentUser.nombre,emoji:currentUser.emoji,time:nowStr()}});
-  fbSet('inventario/productos/'+id,upd); fbLog('edit','Edito: '+item.nombre); expProd2=null; showToast('Guardado');
+  fbSet('inventario/productos/'+id,upd);
+  var entAntes=item.entrada||0;
+  if(ent!==entAntes){
+    firebase.database().ref('inventario/historial_ingresos').push({
+      productoId:id, productoNombre:item.nombre, categoria:item.cat||'',
+      entradaAntes:entAntes, entradaNueva:ent, diferencia:ent-entAntes,
+      unidad:uni, costo:co, precio:pr,
+      usuario:currentUser.nombre, userEmoji:currentUser.emoji||'',
+      ts:Date.now(), fecha:hoy()
+    });
+  }
+  fbLog('edit','Edito: '+item.nombre+' | Entrada: '+entAntes+' -> '+ent); expProd2=null; showToast('Guardado');
 };
 window.delProd=function(id){
   if(!canDelete()){showToast('Sin permiso');return;}
@@ -2797,6 +2820,33 @@ function renderDash(){
   if(utilEl) utilEl.style.color = utilidad >= 0 ? '#1E5631' : '#B71C1C';
 
   if(typeof maskDashForEmpleado === 'function') maskDashForEmpleado();
+  // Top 5 productos que mas inflan Valor Venta
+  var top5El = document.getElementById('top5-valor-venta');
+  if(top5El && p.length) {
+    var conValor = p.filter(function(x){ return (x.stock||0)*(x.precio||0) > 0; });
+    conValor.sort(function(a,b){ return (b.stock||0)*(b.precio||0) - (a.stock||0)*(a.precio||0); });
+    var top5 = conValor.slice(0,5);
+    if(top5.length) {
+      var maxVal = (top5[0].stock||0)*(top5[0].precio||0);
+      var th = '<div class="sec-hdr" style="margin-top:14px">🔍 Top 5 · <span>Mayor Valor Venta</span></div>';
+      th += '<div style="background:var(--color-background-primary);border-radius:14px;padding:12px 14px;border:1px solid var(--color-border-tertiary);margin-bottom:8px">';
+      th += '<div style="font-size:10px;color:#888;margin-bottom:8px">Revisa si stock y precio estan en la misma unidad</div>';
+      top5.forEach(function(x) {
+        var val = (x.stock||0)*(x.precio||0);
+        var pct = maxVal > 0 ? Math.round(val/maxVal*100) : 0;
+        th += '<div style="margin-bottom:10px">';
+        th += '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">';
+        th += '<span style="font-weight:600;color:var(--color-text-primary)">'+x.nombre+'</span>';
+        th += '<span style="font-weight:700;color:#1F4E79">'+fmt$(val)+'</span>';
+        th += '</div>';
+        th += '<div style="flex:1;height:6px;background:#eee;border-radius:3px"><div style="width:'+pct+'%;height:100%;background:#1F4E79;border-radius:3px"></div></div>';
+        th += '<div style="font-size:10px;color:#aaa;margin-top:2px">Stock: '+(x.stock||0)+' '+(x.unidad||'')+' x Precio: '+fmt$(x.precio||0)+' = '+fmt$(val)+'</div>';
+        th += '</div>';
+      });
+      th += '</div>';
+      top5El.innerHTML = th;
+    } else { top5El.innerHTML = ''; }
+  }
   if(typeof checkNotif === 'function') checkNotif();
 }
 
@@ -4571,6 +4621,96 @@ window.ejecutarMoverCierre = function(fechaOrigen, turno) {
   } else {
     showToast('Sin conexión a Firebase');
   }
+};
+
+/* ── HISTORIAL DE INGRESOS AL INVENTARIO ── */
+window.abrirHistorialIngresos = function() {
+  var modal = document.getElementById('modal-add');
+  var title = document.getElementById('modal-add-title');
+  var body  = document.getElementById('modal-add-body');
+  if(!modal||!title||!body) return;
+  title.textContent = '📦 Historial de Ingresos';
+  body.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Cargando...</div>';
+  openModal('modal-add');
+  firebase.database().ref('inventario/historial_ingresos').orderByChild('ts').limitToLast(200).once('value', function(snap) {
+    var registros = [];
+    snap.forEach(function(child) { registros.push(Object.assign({_key: child.key}, child.val())); });
+    registros.reverse();
+    if(!registros.length) {
+      body.innerHTML = '<div style="text-align:center;padding:30px;color:#888"><div style="font-size:32px;margin-bottom:8px">📭</div>No hay ingresos registrados aun.<br><span style="font-size:11px">Se registran automaticamente al cambiar la Entrada de un producto.</span></div>';
+      return;
+    }
+    var fechas = []; var seen = {};
+    registros.forEach(function(r) { if(r.fecha && !seen[r.fecha]) { seen[r.fecha]=true; fechas.push(r.fecha); } });
+    var h = '';
+    h += '<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">';
+    h += '<select id="hi-filtro-fecha" style="flex:1;padding:8px;border-radius:10px;border:1px solid #ddd;font-size:12px" onchange="renderHistIngresos()">';
+    h += '<option value="">Todas las fechas</option>';
+    fechas.forEach(function(f) { h += '<option value="'+f+'">'+f+'</option>'; });
+    h += '</select>';
+    h += '<button onclick="descargarHistIngresos()" style="padding:8px 14px;border-radius:10px;border:none;background:#1E5631;color:#fff;font-size:12px;font-weight:700;cursor:pointer">⬇️ CSV</button>';
+    h += '</div>';
+    h += '<div id="hi-lista"></div>';
+    body.innerHTML = h;
+    window._histIngresosData = registros;
+    renderHistIngresos();
+  });
+};
+
+window.renderHistIngresos = function() {
+  var lista = document.getElementById('hi-lista');
+  if(!lista) return;
+  var registros = window._histIngresosData || [];
+  var filtroFecha = (document.getElementById('hi-filtro-fecha')||{}).value || '';
+  if(filtroFecha) registros = registros.filter(function(r){ return r.fecha === filtroFecha; });
+  if(!registros.length) { lista.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Sin ingresos en esta fecha</div>'; return; }
+  var porFecha = {};
+  registros.forEach(function(r) { var f=r.fecha||'Sin fecha'; if(!porFecha[f]) porFecha[f]=[]; porFecha[f].push(r); });
+  var h = '';
+  Object.keys(porFecha).sort().reverse().forEach(function(fecha) {
+    var regs = porFecha[fecha];
+    h += '<div style="background:#1F4E79;color:#fff;padding:10px 14px;border-radius:10px 10px 0 0;font-size:12px;font-weight:700;margin-top:10px">📅 '+fecha+' · '+regs.length+' ingreso(s)</div>';
+    h += '<div style="border:1px solid #ddd;border-top:none;border-radius:0 0 10px 10px;overflow:hidden;margin-bottom:4px">';
+    regs.forEach(function(r, idx) {
+      var bg = idx%2===0?'#fafafa':'#fff';
+      var dif = r.diferencia||(r.entradaNueva-r.entradaAntes);
+      var difColor = dif>=0?'#1E5631':'#B71C1C';
+      var difStr = (dif>=0?'+':'')+Number(dif).toFixed(2);
+      h += '<div style="background:'+bg+';padding:10px 14px;border-bottom:1px solid #f0f0f0">';
+      h += '<div style="display:flex;justify-content:space-between;align-items:center">';
+      h += '<div style="font-size:13px;font-weight:700;color:#1F4E79">'+(r.productoNombre||'—')+'</div>';
+      h += '<div style="font-size:12px;font-weight:700;color:'+difColor+'">'+difStr+' '+(r.unidad||'')+'</div>';
+      h += '</div>';
+      h += '<div style="display:flex;justify-content:space-between;font-size:11px;color:#888;margin-top:3px">';
+      h += '<span>'+(r.userEmoji||'')+' '+(r.usuario||'—')+'</span><span>'+(r.categoria||'')+'</span>';
+      h += '</div>';
+      h += '<div style="display:flex;justify-content:space-between;font-size:11px;color:#aaa;margin-top:2px">';
+      h += '<span>Entrada: '+(r.entradaAntes||0)+' → '+(r.entradaNueva||0)+'</span>';
+      if(r.costo) h += '<span>Costo: '+fmt$(r.costo*(dif>0?dif:0))+'</span>';
+      h += '</div></div>';
+    });
+    h += '</div>';
+  });
+  lista.innerHTML = h;
+};
+
+window.descargarHistIngresos = function() {
+  var registros = window._histIngresosData || [];
+  var filtroFecha = (document.getElementById('hi-filtro-fecha')||{}).value || '';
+  if(filtroFecha) registros = registros.filter(function(r){ return r.fecha === filtroFecha; });
+  if(!registros.length) { showToast('Sin datos para descargar'); return; }
+  var rows = [['Fecha','Producto','Categoria','Entrada Antes','Entrada Nueva','Diferencia','Unidad','Costo Unit','Valor Ingresado','Usuario']];
+  registros.forEach(function(r) {
+    var dif = r.diferencia||(r.entradaNueva-r.entradaAntes);
+    rows.push([r.fecha||'',r.productoNombre||'',r.categoria||'',r.entradaAntes||0,r.entradaNueva||0,dif,r.unidad||'',r.costo||0,dif>0?Math.round(dif*(r.costo||0)):0,r.usuario||'']);
+  });
+  var csv = rows.map(function(r){ return r.map(function(c){ var s=String(c===null||c===undefined?'':c); return s.indexOf(',')>-1||s.indexOf('"')>-1?'"'+s.replace(/"/g,'""')+'"':s; }).join(','); }).join('\n');
+  var blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href=url; a.download='historial_ingresos_'+(filtroFecha||'todo')+'.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 };
 </script>
 </body>
