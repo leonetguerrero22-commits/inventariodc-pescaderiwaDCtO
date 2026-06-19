@@ -1306,7 +1306,12 @@ function applyRoleUI(){
   if(typeof currentTab!=='undefined'&&allowed.indexOf(currentTab)===-1) goTab('dashboard');
 }
 function maskDashForEmpleado(){
-  if(!isEmpleado()) return;
+  if(!isEmpleado()){
+    document.querySelectorAll('.stat-val,.kpi-val,.dash-num').forEach(function(el){
+      if(el.style.filter){ el.style.filter=''; }
+    });
+    return;
+  }
   document.querySelectorAll('.stat-val,.kpi-val,.dash-num').forEach(function(el){
     if(el.textContent.indexOf('$')!==-1||el.textContent.indexOf('%')!==-1){
       el.style.filter='blur(4px)'; el.textContent='---';
@@ -4549,53 +4554,59 @@ window.guardarEdicionCierre = function() {
   if(!db){ showToast('Sin conexión a Firebase'); return; }
 
   var fechaKey = ctx.fechaKey, turno = ctx.turno, prodsOrig = ctx.prods;
-  var cierre = S.cierres && S.cierres[fechaKey];
-  var datos = cierre ? cierre[turno] : null;
-  if(!datos){ showToast('No se encontró el cierre'); return; }
 
-  var nuevosProds = {};
+  // Construir los valores corregidos que el usuario escribió en el modal
+  var corregidos = {};
   var ajustesStock = [];
-
   prodsOrig.forEach(function(entry, i){
     var pid = entry.pid, p = entry.p;
     var nuevoE = parseFloat((document.getElementById('ec-e-'+i)||{}).value)||0;
     var nuevoS = parseFloat((document.getElementById('ec-s-'+i)||{}).value)||0;
     var difE = nuevoE - (p.entrada||0);
     var difS = nuevoS - (p.salida||0);
-    nuevosProds[pid] = {nombre:p.nombre, unidad:p.unidad, entrada:nuevoE, salida:nuevoS};
+    corregidos[pid] = {nombre:p.nombre, unidad:p.unidad, entrada:nuevoE, salida:nuevoS};
     if(difE !== 0 || difS !== 0){
       ajustesStock.push({pid:pid, nombre:p.nombre, unidad:p.unidad, difE:difE, difS:difS});
     }
   });
 
-  datos.productos = nuevosProds;
-  datos._editado = {por: currentUser?currentUser.nombre:'', motivo:motivo, ts:Date.now()};
+  // Leer el estado ACTUAL en Firebase (puede tener productos agregados despues de abrir el modal)
+  firebase.database().ref('cierres/'+fechaKey+'/'+turno).once('value').then(function(snapActual){
+    var datos = snapActual.val() || {fecha:fechaKey.replace(/_/g,'-'), turno:turno, usuario:currentUser?currentUser.nombre:'', hora:'', productos:{}, ts:Date.now()};
+    var productosFusionados = Object.assign({}, datos.productos||{});
+    // Aplicar las correcciones encima de lo que haya actualmente (no reemplaza productos que no se estaban editando)
+    for(var pid in corregidos){
+      productosFusionados[pid] = corregidos[pid];
+    }
+    datos.productos = productosFusionados;
+    datos._editado = {por: currentUser?currentUser.nombre:'', motivo:motivo, ts:Date.now()};
 
-  firebase.database().ref('cierres/'+fechaKey+'/'+turno).set(datos).then(function(){
-    var promises = ajustesStock.map(function(aj){
-      var prod = S.productos.find(function(p){return p.id===aj.pid;});
-      if(!prod) return Promise.resolve();
-      prod.stock   = Math.max(0, (prod.stock||0)   + aj.difE - aj.difS);
-      prod.salida  = Math.max(0, (prod.salida||0)  + aj.difS);
-      prod.entrada = Math.max(0, (prod.entrada||0) + aj.difE);
-      return firebase.database().ref('inventario/productos/'+aj.pid).update({
-        stock: prod.stock, salida: prod.salida, entrada: prod.entrada
+    firebase.database().ref('cierres/'+fechaKey+'/'+turno).set(datos).then(function(){
+      var promises = ajustesStock.map(function(aj){
+        var prod = S.productos.find(function(p){return p.id===aj.pid;});
+        if(!prod) return Promise.resolve();
+        prod.stock   = Math.max(0, (prod.stock||0)   + aj.difE - aj.difS);
+        prod.salida  = Math.max(0, (prod.salida||0)  + aj.difS);
+        prod.entrada = Math.max(0, (prod.entrada||0) + aj.difE);
+        return firebase.database().ref('inventario/productos/'+aj.pid).update({
+          stock: prod.stock, salida: prod.salida, entrada: prod.entrada
+        });
       });
-    });
-    return Promise.all(promises);
-  }).then(function(){
-    var resumen = ajustesStock.map(function(aj){
-      return aj.nombre+' (E:'+(aj.difE>=0?'+':'')+aj.difE.toFixed(0)+' S:'+(aj.difS>=0?'+':'')+aj.difS.toFixed(0)+')';
-    }).join(', ');
-    fbLog('edit','✏️ Cierre editado: '+turno+' '+fechaKey.replace(/_/g,'-')+' · '+motivo+(resumen?' · '+resumen:''));
-    if(!S.cierres) S.cierres={};
-    if(!S.cierres[fechaKey]) S.cierres[fechaKey]={};
-    S.cierres[fechaKey][turno] = datos;
-    _editCierreCtx = {};
-    showToast('✅ Cierre corregido y stock ajustado');
-    closeModal('modal-add');
-    renderHistorial();
-    if(typeof renderDashboard==='function') renderDashboard();
+      return Promise.all(promises);
+    }).then(function(){
+      var resumen = ajustesStock.map(function(aj){
+        return aj.nombre+' (E:'+(aj.difE>=0?'+':'')+aj.difE.toFixed(0)+' S:'+(aj.difS>=0?'+':'')+aj.difS.toFixed(0)+')';
+      }).join(', ');
+      fbLog('edit','✏️ Cierre editado: '+turno+' '+fechaKey.replace(/_/g,'-')+' · '+motivo+(resumen?' · '+resumen:''));
+      if(!S.cierres) S.cierres={};
+      if(!S.cierres[fechaKey]) S.cierres[fechaKey]={};
+      S.cierres[fechaKey][turno] = datos;
+      _editCierreCtx = {};
+      showToast('✅ Cierre corregido y stock ajustado');
+      closeModal('modal-add');
+      renderHistorial();
+      if(typeof renderDashboard==='function') renderDashboard();
+    }).catch(function(e){ showToast('Error: '+e.message); });
   }).catch(function(e){ showToast('Error: '+e.message); });
 };
 
@@ -4664,16 +4675,41 @@ window.ejecutarMoverCierre = function(fechaOrigen, turno) {
   };
 
   if(db) {
-    // Guardar en fecha destino
-    firebase.database().ref('cierres/'+keyDest+'/'+turno).set(datosTurno).then(function(){
-      // Eliminar de fecha origen
-      firebase.database().ref('cierres/'+keyOrig+'/'+turno).remove();
-      // Log en bitácora
-      fbLog('edit', 'Cierre movido: '+turno+' del '+fechaOrigen+' → '+fechaDest+' · Motivo: '+motivo+' · Admin: '+(currentUser?currentUser.nombre:''));
-      showToast('✅ Cierre movido al '+fechaDest);
-      closeModal('modal-add');
-      renderHistorial();
-    }).catch(function(e){ showToast('Error: '+e.message); });
+    // Leer lo que ya exista en el destino para fusionar y no perder productos
+    firebase.database().ref('cierres/'+keyDest+'/'+turno).once('value').then(function(snapDest){
+      var existenteDest = snapDest.val();
+      var productosFusionados = (existenteDest && existenteDest.productos) ? Object.assign({}, existenteDest.productos) : {};
+      var productosAMover = datosTurno.productos || {};
+      for(var pid in productosAMover){
+        if(productosFusionados[pid]){
+          // El producto ya existia en el destino: sumar entrada/salida
+          productosFusionados[pid] = {
+            nombre: productosAMover[pid].nombre,
+            unidad: productosAMover[pid].unidad,
+            entrada: (productosFusionados[pid].entrada||0) + (productosAMover[pid].entrada||0),
+            salida:  (productosFusionados[pid].salida||0)  + (productosAMover[pid].salida||0)
+          };
+        } else {
+          productosFusionados[pid] = productosAMover[pid];
+        }
+      }
+      var dataFinal = Object.assign({}, datosTurno, {
+        fecha: fechaDest,
+        productos: productosFusionados,
+        hora: (existenteDest && existenteDest.hora) ? existenteDest.hora : datosTurno.hora,
+        usuario: (existenteDest && existenteDest.usuario) ? existenteDest.usuario : datosTurno.usuario
+      });
+      // Guardar en fecha destino (fusionado)
+      firebase.database().ref('cierres/'+keyDest+'/'+turno).set(dataFinal).then(function(){
+        // Eliminar de fecha origen
+        firebase.database().ref('cierres/'+keyOrig+'/'+turno).remove();
+        // Log en bitácora
+        fbLog('edit', 'Cierre movido: '+turno+' del '+fechaOrigen+' → '+fechaDest+' · Motivo: '+motivo+' · Admin: '+(currentUser?currentUser.nombre:''));
+        showToast('✅ Cierre movido al '+fechaDest);
+        closeModal('modal-add');
+        renderHistorial();
+      }).catch(function(e){ showToast('Error: '+e.message); });
+    });
   } else {
     showToast('Sin conexión a Firebase');
   }
