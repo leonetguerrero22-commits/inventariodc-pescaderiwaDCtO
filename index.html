@@ -419,8 +419,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--negro);color:var(--negro)
       <div id="alertas-dash"></div>
       <div id="top5-valor-venta"></div>
       <button onclick="abrirHistorialIngresos()" style="width:100%;margin-top:14px;padding:13px;border-radius:14px;border:none;background:linear-gradient(135deg,#1F4E79,#2E86AB);color:#fff;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.3px">📦 Historial de Ingresos al Inventario</button>
-      <button onclick="abrirVistaInventario()" style="width:100%;margin-top:10px;padding:13px;border-radius:14px;border:none;background:linear-gradient(135deg,#6A4C93,#8E5FB5);color:#fff;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.3px">👁️ Ver Inventario Completo</button>
-      <button onclick="descargarInventarioCompleto()" style="width:100%;margin-top:10px;padding:13px;border-radius:14px;border:none;background:linear-gradient(135deg,#1E5631,#2E7D32);color:#fff;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.3px">⬇️ Descargar Inventario Completo (CSV)</button>
+      <button id="btn-ver-inv" onclick="abrirVistaInventario()" style="width:100%;margin-top:10px;padding:13px;border-radius:14px;border:none;background:linear-gradient(135deg,#6A4C93,#8E5FB5);color:#fff;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.3px">👁️ Ver Inventario Completo</button>
+      <button id="btn-desc-inv" onclick="descargarInventarioCompleto()" style="width:100%;margin-top:10px;padding:13px;border-radius:14px;border:none;background:linear-gradient(135deg,#1E5631,#2E7D32);color:#fff;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.3px">⬇️ Descargar Inventario Completo (CSV)</button>
     </div>
     <!-- INSUMOS -->
     <div id="tab-insumos" class="tab-panel">
@@ -1688,30 +1688,49 @@ function guardarTurno(turno){
   });
   if(!hasData){showToast('No hay datos que guardar');return;}
   var hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
-  var data={fecha:fecha,turno:turno,usuario:currentUser?currentUser.nombre:'',hora:hora,productos:sp,ts:Date.now()};
   if(db){
-    firebase.database().ref('cierres/'+key+'/'+turno).set(data);
-    for(var pid in sp){var p2=S.productos.find(function(p){return p.id===pid;});
-      if(p2){
-        var entAntes2=p2.entrada||0;
-        if(sp[pid].entrada)p2.entrada=(p2.entrada||0)+sp[pid].entrada;
-        if(sp[pid].salida){p2.salida=(p2.salida||0)+sp[pid].salida;p2.stock=Math.max(0,(p2.stock||0)-sp[pid].salida);}
-        firebase.database().ref('inventario/productos/'+pid).update({entrada:p2.entrada,salida:p2.salida,stock:p2.stock});
-        if(sp[pid].entrada>0){
-          firebase.database().ref('inventario/historial_ingresos').push({
-            productoId:pid, productoNombre:p2.nombre, categoria:p2.cat||'',
-            entradaAntes:entAntes2, entradaNueva:p2.entrada, diferencia:sp[pid].entrada,
-            unidad:p2.unidad||'', costo:p2.costo||0, precio:p2.precio||0,
-            usuario:currentUser?currentUser.nombre:'', userEmoji:currentUser?currentUser.emoji||'':'',
-            ts:Date.now(), fecha:fecha, origen:'Cierre de turno ('+(turno==='manana'?'Mañana':'Tarde')+')'
-          });
+    firebase.database().ref('cierres/'+key+'/'+turno).once('value').then(function(snap){
+      var existente = snap.val();
+      var productosFusionados = (existente && existente.productos) ? Object.assign({}, existente.productos) : {};
+      for(var pidNuevo in sp){
+        if(productosFusionados[pidNuevo]){
+          // Ya existia este producto en el turno: suma a lo que ya habia registrado
+          productosFusionados[pidNuevo] = {
+            nombre: sp[pidNuevo].nombre,
+            unidad: sp[pidNuevo].unidad,
+            entrada: (productosFusionados[pidNuevo].entrada||0) + sp[pidNuevo].entrada,
+            salida:  (productosFusionados[pidNuevo].salida||0)  + sp[pidNuevo].salida
+          };
+        } else {
+          productosFusionados[pidNuevo] = sp[pidNuevo];
         }
       }
-    }
+      var data={fecha:fecha,turno:turno,usuario:currentUser?currentUser.nombre:'',hora:hora,productos:productosFusionados,ts:Date.now()};
+      firebase.database().ref('cierres/'+key+'/'+turno).set(data);
+      for(var pid in sp){var p2=S.productos.find(function(p){return p.id===pid;});
+        if(p2){
+          var entAntes2=p2.entrada||0;
+          if(sp[pid].entrada)p2.entrada=(p2.entrada||0)+sp[pid].entrada;
+          if(sp[pid].salida){p2.salida=(p2.salida||0)+sp[pid].salida;p2.stock=Math.max(0,(p2.stock||0)-sp[pid].salida);}
+          firebase.database().ref('inventario/productos/'+pid).update({entrada:p2.entrada,salida:p2.salida,stock:p2.stock});
+          if(sp[pid].entrada>0){
+            firebase.database().ref('inventario/historial_ingresos').push({
+              productoId:pid, productoNombre:p2.nombre, categoria:p2.cat||'',
+              entradaAntes:entAntes2, entradaNueva:p2.entrada, diferencia:sp[pid].entrada,
+              unidad:p2.unidad||'', costo:p2.costo||0, precio:p2.precio||0,
+              usuario:currentUser?currentUser.nombre:'', userEmoji:currentUser?currentUser.emoji||'':'',
+              ts:Date.now(), fecha:fecha, origen:'Cierre de turno ('+(turno==='manana'?'Mañana':'Tarde')+')'
+            });
+          }
+        }
+      }
+      if(!S.cierres)S.cierres={};if(!S.cierres[key])S.cierres[key]={};S.cierres[key][turno]=data;
+      fbLog('cierre','Turno '+turno+' — '+Object.keys(sp).length+' producto(s) agregado(s)/actualizado(s)');
+      showToast('Turno '+(turno==='manana'?'mañana':'tarde')+' guardado');renderCierre();
+    });
+  } else {
+    showToast('Sin conexión a Firebase');
   }
-  if(!S.cierres)S.cierres={};if(!S.cierres[key])S.cierres[key]={};S.cierres[key][turno]=data;
-  fbLog('cierre','Turno '+turno+' — '+Object.keys(sp).length+' productos');
-  showToast('Turno '+(turno==='manana'?'manana':'tarde')+' guardado');renderCierre();
 }
 /* ══ CONTEO SEMANAL v2 — control + PIN + exportar ══ */
 window._conteoDifs = [];
@@ -2852,6 +2871,11 @@ function renderDash(){
   if(utilEl) utilEl.style.color = utilidad >= 0 ? '#1E5631' : '#B71C1C';
 
   if(typeof maskDashForEmpleado === 'function') maskDashForEmpleado();
+  var esAdminOSup = currentUser && (currentUser.rol==='admin'||currentUser.rol==='supervisor');
+  var btnVerInv = document.getElementById('btn-ver-inv');
+  var btnDescInv = document.getElementById('btn-desc-inv');
+  if(btnVerInv) btnVerInv.style.display = esAdminOSup ? 'block' : 'none';
+  if(btnDescInv) btnDescInv.style.display = esAdminOSup ? 'block' : 'none';
   // Top 5 productos que mas inflan Valor Venta
   var top5El = document.getElementById('top5-valor-venta');
   if(top5El && p.length) {
@@ -4746,6 +4770,9 @@ window.descargarHistIngresos = function() {
 };
 
 window.descargarInventarioCompleto = function() {
+  if(!currentUser || (currentUser.rol!=='admin' && currentUser.rol!=='supervisor')) {
+    showToast('Solo administradores y supervisores pueden descargar esto'); return;
+  }
   var p = S.productos || [];
   if(!p.length) { showToast('Sin productos en el inventario'); return; }
   var rows = [['Nombre','Categoria','Stock Actual','Unidad','Entrada Acumulada','Salida Acumulada','Stock Minimo','Costo Unit','Precio Venta','Valor Stock (Costo)','Valor Stock (Venta)','Ultima Modificacion Por','Ultima Modificacion Fecha']];
@@ -4780,6 +4807,9 @@ window.descargarInventarioCompleto = function() {
 
 /* ── VER INVENTARIO COMPLETO EN PANTALLA ── */
 window.abrirVistaInventario = function() {
+  if(!currentUser || (currentUser.rol!=='admin' && currentUser.rol!=='supervisor')) {
+    showToast('Solo administradores y supervisores pueden ver esto'); return;
+  }
   var modal = document.getElementById('modal-add');
   var title = document.getElementById('modal-add-title');
   var body  = document.getElementById('modal-add-body');
