@@ -831,6 +831,12 @@ function subscribeAll(){
     if(loginScr && loginScr.style.display !== 'none') renderLoginUsers();
   });
 
+  /* Catalogo de items de gasto (insumos, fijos, variables) */
+  firebase.database().ref('inventario/catalogoGastos').on('value', function(snap){
+    var obj = snap.exists() ? snap.val() : {};
+    S.catalogoGastos = Object.keys(obj).map(function(k){ return Object.assign({_key:k}, obj[k]); });
+  });
+
   /* Lista negra: se carga PRIMERO con .once() y solo cuando ya está lista
      se arranca la escucha de productos, para garantizar el orden correcto */
   if(!window.S_ELIMINADOS) window.S_ELIMINADOS = {};
@@ -2262,6 +2268,7 @@ function renderReportes(){
   html+='</div>';
   html+='<div class="rep-card"><div class="rep-title">Reporte WhatsApp</div><button class="wa-btn" onclick="enviarWA()">Generar y enviar por WhatsApp</button></div>';
   if(bajosP.length||bajosE.length){html+='<div class="rep-card"><div class="rep-title">Alertas de stock</div><div style="background:#FFF3CD;border-radius:10px;padding:10px;font-size:12px;color:#856404;margin-bottom:10px">';bajosP.concat(bajosE).slice(0,10).forEach(function(p){html+='• '+p.nombre+': '+(p.stock||0)+' '+p.unidad+' (min '+p.min+')<br>';});html+='</div></div>';}
+  html+='<div class="rep-card"><div class="rep-title">💰 Reporte de Gastos por Mes</div><div id="reporte-gastos-mes"></div></div>';
   /* Tabla de permisos dinámica */
   var isAdmin = currentUser && currentUser.rol==='admin';
   html+='<div class="rep-card"><div class="rep-title">🔐 Permisos por Rol</div>';
@@ -2301,6 +2308,7 @@ function renderReportes(){
   }
   html+='</div></div>';
   el.innerHTML=html; checkNotif();
+  renderReporteGastosMes();
 }
 function updMg(id){var pp=parseFloat((document.getElementById('pr-p-'+id)||{}).value)||0,co=parseFloat((document.getElementById('pr-c-'+id)||{}).value)||0;var el=document.getElementById('mg-'+id);if(!el)return;if(pp>0&&co>0){var m=Math.round(((pp-co)/pp)*100);el.textContent=m+'%';el.className='margen-badge '+(m>=40?'margen-ok':m>=20?'margen-med':'margen-low');}else{el.textContent='--';el.className='margen-badge';}}
 function guardarPrecios(){for(var i=0;i<S.productos.length;i++){var p=S.productos[i];var ep=document.getElementById('pr-p-'+p.id),ec=document.getElementById('pr-c-'+p.id);if(ep)p.precio=parseFloat(ep.value)||0;if(ec)p.costo=parseFloat(ec.value)||0;if(db)firebase.database().ref('inventario/productos/'+p.id).update({precio:p.precio,costo:p.costo});}showToast('Precios guardados');}
@@ -3248,24 +3256,37 @@ function renderVentas(){
   h += '</div>';
 
   /* GASTOS del día */
-  h += '<div style="font-size:11px;font-weight:700;color:#B71C1C;margin:14px 0 4px;text-transform:uppercase;letter-spacing:.5px">📊 Gastos del Día</div>';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 4px">';
+  h += '<span style="font-size:11px;font-weight:700;color:#B71C1C;text-transform:uppercase;letter-spacing:.5px">📊 Gastos del Día</span>';
+  h += '<button onclick="abrirCatalogoGastos()" style="font-size:10px;padding:4px 9px;border-radius:7px;border:1px solid #888;background:transparent;color:#888;cursor:pointer">⚙️ Items de gasto</button>';
+  h += '</div>';
   var conceptosGasto = [
-    {id:'insumos',    label:'🥩 Insumos / Compras'},
-    {id:'bebidas',    label:'🍹 Bebidas / Barra'},
-    {id:'empaques',   label:'📦 Empaques'},
-    {id:'nomina',     label:'👷 Nómina del día'},
-    {id:'domicilios', label:'🚗 Domicilios / Moto'},
-    {id:'servicios',  label:'💡 Servicios (luz/agua/gas)'},
-    {id:'aseo',       label:'🧹 Aseo / Limpieza'},
-    {id:'publicidad', label:'📢 Publicidad'},
-    {id:'mant',       label:'🔧 Mantenimiento'},
-    {id:'otros',      label:'💰 Otros gastos'},
+    {id:'insumos',    label:'🥩 Insumos / Compras', etiqueta:'insumo'},
+    {id:'bebidas',    label:'🍹 Bebidas / Barra', etiqueta:'insumo'},
+    {id:'empaques',   label:'📦 Empaques', etiqueta:'variable'},
+    {id:'nomina',     label:'👷 Nómina del día', etiqueta:'fijo'},
+    {id:'domicilios', label:'🚗 Domicilios / Moto', etiqueta:'variable'},
+    {id:'servicios',  label:'💡 Servicios (luz/agua/gas)', etiqueta:'fijo'},
+    {id:'aseo',       label:'🧹 Aseo / Limpieza', etiqueta:'fijo'},
+    {id:'publicidad', label:'📢 Publicidad', etiqueta:'fijo'},
+    {id:'mant',       label:'🔧 Mantenimiento', etiqueta:'fijo'},
+    {id:'otros',      label:'💰 Otros gastos', etiqueta:'variable'},
   ];
   var gDia = registroDia ? (registroDia.gastos||{}) : {};
+  var detalleDia = registroDia ? (registroDia.gastosDetalle||{}) : {};
+  window._gastosDetalleActual = JSON.parse(JSON.stringify(detalleDia));
   conceptosGasto.forEach(function(g){
-    h += '<div class="cierre-row">';
+    var itemsCat = (window._gastosDetalleActual[g.id]||[]);
+    h += '<div class="cierre-row" style="flex-direction:column;align-items:stretch">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;width:100%">';
     h += '<span class="cierre-label">'+g.label+'</span>';
-    h += '<input class="cierre-inp" type="number" min="0" step="100" id="g-'+g.id+'" value="'+(gDia[g.id]||0)+'" oninput="calcVentasTotales()" placeholder="0">';
+    h += '<div style="display:flex;align-items:center;gap:6px">';
+    h += '<button onclick="abrirDetalleGasto(\''+g.id+'\',\''+g.label.replace(/'/g,"\\'")+'\')" style="font-size:10px;padding:3px 8px;border-radius:6px;border:1px solid #1F4E79;background:transparent;color:#1F4E79;cursor:pointer">'+(itemsCat.length?'✏️ '+itemsCat.length:'+ Detallar')+'</button>';
+    h += '<input class="cierre-inp" type="number" min="0" step="100" id="g-'+g.id+'" value="'+(gDia[g.id]||0)+'" oninput="calcVentasTotales()" placeholder="0"'+(itemsCat.length?' readonly style="background:#f0f0f0;color:#888"':'')+'>';
+    h += '</div></div>';
+    if(itemsCat.length){
+      h += '<div style="font-size:10px;color:#aaa;margin-top:3px;padding-left:2px">'+itemsCat.map(function(it){return it.nombre+' ('+it.cantidad+')';}).join(', ')+'</div>';
+    }
     h += '</div>';
   });
   h += '<div class="cierre-row" style="background:#fff5f5;border-radius:8px;padding:8px;margin-top:4px">';
@@ -3607,6 +3628,7 @@ function guardarVentasDia(){
   var registro = {
     fecha: fechaGuardar, ts: Date.now(),
     tasas: tasas, ventas: ventas, gastos: gastos,
+    gastosDetalle: window._gastosDetalleActual || {},
     ventaBruta: Math.round(ventaBruta),
     totalVentas: Math.round(totalVentas), totalGastos: Math.round(totalGastos),
     utilidad: Math.round(ventaBruta-totalGastos), notas: notas,
@@ -4927,6 +4949,325 @@ window.renderVistaInventario = function() {
     h += '</div>';
   });
   lista.innerHTML = h;
+};
+
+
+/* ====== CATALOGO DE ITEMS DE GASTO (insumos / fijos / variables) ====== */
+var CATEGORIAS_GASTO = [
+  {id:'insumos',label:'Insumos / Compras'},{id:'bebidas',label:'Bebidas / Barra'},
+  {id:'empaques',label:'Empaques'},{id:'nomina',label:'Nomina del dia'},
+  {id:'domicilios',label:'Domicilios / Moto'},{id:'servicios',label:'Servicios'},
+  {id:'aseo',label:'Aseo / Limpieza'},{id:'publicidad',label:'Publicidad'},
+  {id:'mant',label:'Mantenimiento'},{id:'otros',label:'Otros gastos'}
+];
+var ETIQUETAS_GASTO = [
+  {id:'insumo',label:'Insumo',color:'#1F4E79'},
+  {id:'fijo',label:'Fijo',color:'#6A4C93'},
+  {id:'variable',label:'Variable',color:'#E65100'}
+];
+
+window.abrirCatalogoGastos = function(){
+  var modal = document.getElementById('modal-add');
+  var title = document.getElementById('modal-add-title');
+  var body  = document.getElementById('modal-add-body');
+  if(!modal||!title||!body) return;
+  title.textContent = '⚙️ Items de Gasto';
+  var h = '';
+  h += '<div style="font-size:11px;color:#888;margin-bottom:12px">Crea los insumos y gastos que compras seguido (ej: Camaron, Aguacate, Gas) para poder elegirlos rapido al cerrar el dia, en vez de escribir un monto a mano.</div>';
+  h += '<button onclick="abrirNuevoItemCatalogo()" style="width:100%;padding:11px;border-radius:10px;border:none;background:#1E5631;color:#fff;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:14px">+ Nuevo item</button>';
+  h += '<div id="catalogo-lista"></div>';
+  body.innerHTML = h;
+  openModal('modal-add');
+  renderCatalogoGastosLista();
+};
+
+window.renderCatalogoGastosLista = function(){
+  var el = document.getElementById('catalogo-lista');
+  if(!el) return;
+  var items = (S.catalogoGastos||[]).slice().sort(function(a,b){ return (a.categoria||'').localeCompare(b.categoria||'')||(a.nombre||'').localeCompare(b.nombre||''); });
+  if(!items.length){ el.innerHTML = '<div style="text-align:center;padding:20px;color:#888;font-size:12px">Aun no has creado ningun item</div>'; return; }
+  var porCat = {};
+  items.forEach(function(it){ var c=it.categoria||'otros'; if(!porCat[c]) porCat[c]=[]; porCat[c].push(it); });
+  var h = '';
+  CATEGORIAS_GASTO.forEach(function(cat){
+    var arr = porCat[cat.id];
+    if(!arr||!arr.length) return;
+    h += '<div style="font-size:11px;font-weight:700;color:#1F4E79;margin:10px 0 4px">'+cat.label+'</div>';
+    arr.forEach(function(it){
+      var et = ETIQUETAS_GASTO.find(function(e){return e.id===it.etiqueta;}) || ETIQUETAS_GASTO[2];
+      h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#fafafa;border-radius:8px;margin-bottom:6px">';
+      h += '<div><div style="font-size:13px;font-weight:600">'+it.nombre+'</div>';
+      h += '<div style="font-size:10px;color:#888">'+fmtCOP(it.precioRef||0)+' / '+(it.unidad||'unidad')+' · <span style="color:'+et.color+';font-weight:700">'+et.label+'</span></div></div>';
+      h += '<div style="display:flex;gap:6px">';
+      h += '<button onclick="abrirNuevoItemCatalogo(\''+it._key+'\')" style="font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid #1F4E79;background:transparent;color:#1F4E79;cursor:pointer">✏️</button>';
+      h += '<button onclick="eliminarItemCatalogo(\''+it._key+'\')" style="font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid #B71C1C;background:transparent;color:#B71C1C;cursor:pointer">🗑️</button>';
+      h += '</div></div>';
+    });
+  });
+  el.innerHTML = h;
+};
+
+window.abrirNuevoItemCatalogo = function(editKey){
+  var item = editKey ? (S.catalogoGastos||[]).find(function(x){return x._key===editKey;}) : null;
+  var modal = document.getElementById('modal-add');
+  var title = document.getElementById('modal-add-title');
+  var body  = document.getElementById('modal-add-body');
+  if(!modal||!title||!body) return;
+  title.textContent = item ? '✏️ Editar Item' : '+ Nuevo Item de Gasto';
+  var h = '';
+  h += '<div class="field-col" style="margin-bottom:10px"><div class="flabel">Nombre</div><input class="finput" id="cg-nombre" placeholder="Ej: Camaron, Aguacate, Gas" value="'+(item?item.nombre:'')+'"></div>';
+  h += '<div class="field-col" style="margin-bottom:10px"><div class="flabel">Categoria del gasto</div><select class="finput" id="cg-categoria">';
+  CATEGORIAS_GASTO.forEach(function(c){ h += '<option value="'+c.id+'"'+(item&&item.categoria===c.id?' selected':'')+'>'+c.label+'</option>'; });
+  h += '</select></div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">';
+  h += '<div class="field-col"><div class="flabel">Precio de referencia</div><input class="finput" type="number" id="cg-precio" min="0" step="100" value="'+(item?item.precioRef||0:0)+'"></div>';
+  h += '<div class="field-col"><div class="flabel">Unidad</div><input class="finput" id="cg-unidad" placeholder="kg, unidad, litro" value="'+(item?item.unidad||'':'')+'"></div>';
+  h += '</div>';
+  h += '<div class="field-col" style="margin-bottom:14px"><div class="flabel">Tipo de gasto</div><select class="finput" id="cg-etiqueta">';
+  ETIQUETAS_GASTO.forEach(function(e){ h += '<option value="'+e.id+'"'+(item&&item.etiqueta===e.id?' selected':(!item&&e.id==='insumo'?' selected':''))+'>'+e.label+'</option>'; });
+  h += '</select></div>';
+  h += '<button class="btn-primary" onclick="guardarItemCatalogo(\''+(editKey||'')+'\')" style="background:#1E5631">💾 Guardar</button>';
+  h += '<button class="btn-primary" style="background:transparent;border:1px solid #ddd;color:#888;margin-top:6px" onclick="abrirCatalogoGastos()">Cancelar</button>';
+  body.innerHTML = h;
+};
+
+window.guardarItemCatalogo = function(editKey){
+  var nombre = (document.getElementById('cg-nombre')||{}).value||'';
+  if(!nombre.trim()){ showToast('Ingresa un nombre'); return; }
+  var item = {
+    nombre: nombre.trim(),
+    categoria: (document.getElementById('cg-categoria')||{}).value||'otros',
+    precioRef: parseFloat((document.getElementById('cg-precio')||{}).value)||0,
+    unidad: (document.getElementById('cg-unidad')||{}).value||'unidad',
+    etiqueta: (document.getElementById('cg-etiqueta')||{}).value||'insumo'
+  };
+  var ref = editKey ? firebase.database().ref('inventario/catalogoGastos/'+editKey) : firebase.database().ref('inventario/catalogoGastos').push();
+  ref.set(item).then(function(){
+    showToast('✅ Item guardado');
+    abrirCatalogoGastos();
+  }).catch(function(e){ showToast('Error: '+e.message); });
+};
+
+window.eliminarItemCatalogo = function(key){
+  if(!window.confirm('¿Eliminar este item del catalogo?')) return;
+  firebase.database().ref('inventario/catalogoGastos/'+key).remove().then(function(){
+    showToast('Item eliminado');
+    renderCatalogoGastosLista();
+  });
+};
+
+/* ====== DETALLE DE GASTO POR CATEGORIA (dentro del cierre del dia) ====== */
+window.abrirDetalleGasto = function(catId, catLabel){
+  var modal = document.getElementById('modal-add');
+  var title = document.getElementById('modal-add-title');
+  var body  = document.getElementById('modal-add-body');
+  if(!modal||!title||!body) return;
+  title.textContent = '🧾 Detalle: '+catLabel;
+  window._detalleCatActual = catId;
+  var itemsCatalogo = (S.catalogoGastos||[]).filter(function(x){ return x.categoria===catId; });
+  var itemsActuales = window._gastosDetalleActual[catId]||[];
+
+  var h = '';
+  if(!itemsCatalogo.length){
+    h += '<div style="background:#fff3e0;border-radius:10px;padding:10px;margin-bottom:12px;font-size:11px;color:#7a4f10">No tienes items creados para esta categoria todavia. <a href="#" onclick="abrirCatalogoGastos();return false" style="color:#1F4E79;font-weight:700">Crear uno</a></div>';
+  } else {
+    h += '<select class="finput" id="dg-item-select" style="margin-bottom:8px">';
+    h += '<option value="">Selecciona un item...</option>';
+    itemsCatalogo.forEach(function(it){ h += '<option value="'+it._key+'">'+it.nombre+' ('+fmtCOP(it.precioRef||0)+'/'+it.unidad+')</option>'; });
+    h += '</select>';
+    h += '<div style="display:flex;gap:8px;margin-bottom:10px">';
+    h += '<input class="finput" type="number" id="dg-cantidad" placeholder="Cantidad" min="0" step="0.01" style="flex:1">';
+    h += '<button onclick="agregarItemDetalle()" style="padding:0 16px;border-radius:10px;border:none;background:#1E5631;color:#fff;font-weight:700;cursor:pointer">+ Agregar</button>';
+    h += '</div>';
+  }
+
+  h += '<div id="dg-lista-items" style="margin-top:6px"></div>';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;background:#f0f8f4;border-radius:8px;padding:10px;margin-top:10px">';
+  h += '<span style="font-weight:700;color:#1E5631;font-size:12px">Total detallado</span>';
+  h += '<span id="dg-total" style="font-weight:700;color:#1E5631;font-size:15px">'+fmtCOP(0)+'</span>';
+  h += '</div>';
+  h += '<button class="btn-primary" style="background:#1F4E79;margin-top:10px" onclick="confirmarDetalleGasto()">✅ Usar este detalle</button>';
+  h += '<button class="btn-primary" style="background:transparent;border:1px solid #ddd;color:#888;margin-top:6px" onclick="closeModal(\'modal-add\')">Cerrar</button>';
+  body.innerHTML = h;
+  renderDetalleItemsLista();
+};
+
+window.renderDetalleItemsLista = function(){
+  var el = document.getElementById('dg-lista-items');
+  var totalEl = document.getElementById('dg-total');
+  if(!el) return;
+  var catId = window._detalleCatActual;
+  var items = window._gastosDetalleActual[catId]||[];
+  var total = items.reduce(function(s,it){ return s+(it.subtotal||0); },0);
+  if(totalEl) totalEl.textContent = fmtCOP(total);
+  if(!items.length){ el.innerHTML = '<div style="text-align:center;padding:14px;color:#aaa;font-size:11px">Sin items agregados aun</div>'; return; }
+  var h = '';
+  items.forEach(function(it,idx){
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:#fafafa;border-radius:8px;margin-bottom:6px">';
+    h += '<div><div style="font-size:12px;font-weight:600">'+it.nombre+'</div><div style="font-size:10px;color:#888">'+it.cantidad+' '+it.unidad+' x '+fmtCOP(it.precioUnit)+'</div></div>';
+    h += '<div style="display:flex;align-items:center;gap:8px"><span style="font-weight:700;font-size:12px">'+fmtCOP(it.subtotal)+'</span>';
+    h += '<button onclick="quitarItemDetalle('+idx+')" style="background:none;border:none;color:#B71C1C;cursor:pointer;font-size:14px">✕</button></div>';
+    h += '</div>';
+  });
+  el.innerHTML = h;
+};
+
+window.agregarItemDetalle = function(){
+  var sel = document.getElementById('dg-item-select');
+  var cantEl = document.getElementById('dg-cantidad');
+  var key = sel?sel.value:'';
+  var cant = parseFloat(cantEl?cantEl.value:0)||0;
+  if(!key){ showToast('Selecciona un item'); return; }
+  if(!cant||cant<=0){ showToast('Ingresa una cantidad valida'); return; }
+  var item = (S.catalogoGastos||[]).find(function(x){return x._key===key;});
+  if(!item) return;
+  var catId = window._detalleCatActual;
+  if(!window._gastosDetalleActual[catId]) window._gastosDetalleActual[catId]=[];
+  window._gastosDetalleActual[catId].push({
+    nombre:item.nombre, unidad:item.unidad, cantidad:cant,
+    precioUnit:item.precioRef||0, subtotal:cant*(item.precioRef||0),
+    etiqueta:item.etiqueta||'insumo', catalogoKey:key
+  });
+  if(cantEl) cantEl.value='';
+  if(sel) sel.value='';
+  renderDetalleItemsLista();
+};
+
+window.quitarItemDetalle = function(idx){
+  var catId = window._detalleCatActual;
+  window._gastosDetalleActual[catId].splice(idx,1);
+  renderDetalleItemsLista();
+};
+
+window.confirmarDetalleGasto = function(){
+  var catId = window._detalleCatActual;
+  var items = window._gastosDetalleActual[catId]||[];
+  var total = items.reduce(function(s,it){ return s+(it.subtotal||0); },0);
+  var inp = document.getElementById('g-'+catId);
+  if(inp){ inp.value = Math.round(total); }
+  closeModal('modal-add');
+  setTimeout(function(){
+    if(typeof renderCierre==='function') renderCierre();
+    else if(typeof calcVentasTotales==='function') calcVentasTotales();
+  }, 50);
+};
+
+
+/* ====== REPORTE MENSUAL DE GASTOS (insumo/fijo/variable) ====== */
+window.renderReporteGastosMes = function(){
+  var el = document.getElementById('reporte-gastos-mes');
+  if(!el) return;
+  var hoyD = new Date();
+  var mesActual = hoyD.getFullYear()+'-'+String(hoyD.getMonth()+1).padStart(2,'0');
+  if(!window._mesReporteGastos) window._mesReporteGastos = mesActual;
+
+  var h = '';
+  h += '<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">';
+  h += '<input type="month" id="rg-mes" value="'+window._mesReporteGastos+'" style="flex:1;padding:8px;border-radius:10px;border:1px solid #ddd;font-size:12px" onchange="window._mesReporteGastos=this.value;calcularReporteGastosMes()">';
+  h += '<button onclick="descargarReporteGastosMes()" style="padding:8px 14px;border-radius:10px;border:none;background:#1E5631;color:#fff;font-size:12px;font-weight:700;cursor:pointer">⬇️ CSV</button>';
+  h += '</div>';
+  h += '<div id="rg-resultado">Cargando...</div>';
+  el.innerHTML = h;
+  calcularReporteGastosMes();
+};
+
+window.calcularReporteGastosMes = function(){
+  var resEl = document.getElementById('rg-resultado');
+  if(!resEl) return;
+  var mes = window._mesReporteGastos;
+  if(!mes){ resEl.innerHTML = ''; return; }
+
+  var ventas = S.ventas || {};
+  var fechasDelMes = Object.keys(ventas).filter(function(f){ return f.indexOf(mes)===0; });
+
+  var porEtiqueta = {insumo:0, fijo:0, variable:0};
+  var porItem = {};
+  var totalGastosMes = 0;
+  var diasConDetalle = 0;
+
+  fechasDelMes.forEach(function(f){
+    var reg = ventas[f];
+    totalGastosMes += (reg.totalGastos||0);
+    var det = reg.gastosDetalle||{};
+    var huboDetalle = false;
+    Object.keys(det).forEach(function(catId){
+      (det[catId]||[]).forEach(function(it){
+        huboDetalle = true;
+        var et = it.etiqueta||'insumo';
+        porEtiqueta[et] = (porEtiqueta[et]||0) + (it.subtotal||0);
+        var k = it.nombre;
+        if(!porItem[k]) porItem[k] = {nombre:k, unidad:it.unidad, cantidad:0, total:0, etiqueta:et};
+        porItem[k].cantidad += (it.cantidad||0);
+        porItem[k].total += (it.subtotal||0);
+      });
+    });
+    if(huboDetalle) diasConDetalle++;
+  });
+
+  var totalDetallado = porEtiqueta.insumo + porEtiqueta.fijo + porEtiqueta.variable;
+  var sinDetallar = Math.max(0, totalGastosMes - totalDetallado);
+
+  if(!fechasDelMes.length){
+    resEl.innerHTML = '<div style="text-align:center;padding:20px;color:#888;font-size:12px">Sin cierres registrados en este mes</div>';
+    return;
+  }
+
+  var h = '';
+  h += '<div style="background:#f0f8f4;border-radius:10px;padding:12px;margin-bottom:12px">';
+  h += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span>Total gastos del mes</span><span style="font-weight:700">'+fmtCOP(totalGastosMes)+'</span></div>';
+  h += '<div style="display:flex;justify-content:space-between;font-size:11px;color:#888;padding:3px 0"><span>Dias con detalle cargado</span><span>'+diasConDetalle+' de '+fechasDelMes.length+'</span></div>';
+  h += '</div>';
+
+  if(totalDetallado>0){
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px">';
+    h += '<div style="background:#e8f0fe;border-radius:8px;padding:8px;text-align:center"><div style="font-size:9px;color:#1F4E79">INSUMO</div><div style="font-size:13px;font-weight:700;color:#1F4E79">'+fmtCOP(porEtiqueta.insumo)+'</div></div>';
+    h += '<div style="background:#f0e8fa;border-radius:8px;padding:8px;text-align:center"><div style="font-size:9px;color:#6A4C93">FIJO</div><div style="font-size:13px;font-weight:700;color:#6A4C93">'+fmtCOP(porEtiqueta.fijo)+'</div></div>';
+    h += '<div style="background:#fff3e0;border-radius:8px;padding:8px;text-align:center"><div style="font-size:9px;color:#E65100">VARIABLE</div><div style="font-size:13px;font-weight:700;color:#E65100">'+fmtCOP(porEtiqueta.variable)+'</div></div>';
+    h += '</div>';
+
+    var itemsArr = Object.values(porItem).sort(function(a,b){ return b.total-a.total; });
+    var maxTotal = itemsArr.length ? itemsArr[0].total : 1;
+    h += '<div style="font-size:11px;font-weight:700;color:#1F4E79;margin-bottom:8px">🔍 Top items por gasto</div>';
+    itemsArr.slice(0,10).forEach(function(it){
+      var pct = maxTotal>0 ? Math.round(it.total/maxTotal*100) : 0;
+      var etColor = it.etiqueta==='insumo'?'#1F4E79':it.etiqueta==='fijo'?'#6A4C93':'#E65100';
+      h += '<div style="margin-bottom:8px">';
+      h += '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span style="font-weight:600">'+it.nombre+'</span><span style="font-weight:700">'+fmtCOP(it.total)+'</span></div>';
+      h += '<div style="height:6px;background:#eee;border-radius:3px"><div style="width:'+pct+'%;height:100%;background:'+etColor+';border-radius:3px"></div></div>';
+      h += '<div style="font-size:10px;color:#aaa;margin-top:1px">'+it.cantidad.toFixed(2)+' '+(it.unidad||'')+'</div>';
+      h += '</div>';
+    });
+
+    if(sinDetallar>0){
+      h += '<div style="font-size:10px;color:#aaa;margin-top:8px;text-align:center">'+fmtCOP(sinDetallar)+' en gastos sin detallar (montos cargados directo, sin items)</div>';
+    }
+  } else {
+    h += '<div style="text-align:center;padding:14px;color:#888;font-size:12px">Ningun gasto de este mes fue detallado por item.<br><span style="font-size:10px">Usa el boton "Detallar" en el cierre del dia para ver este desglose.</span></div>';
+  }
+
+  resEl.innerHTML = h;
+  window._reporteGastosMesData = {porEtiqueta:porEtiqueta, porItem:porItem, totalGastosMes:totalGastosMes, mes:mes};
+};
+
+window.descargarReporteGastosMes = function(){
+  var data = window._reporteGastosMesData;
+  if(!data){ showToast('Espera a que cargue el reporte'); return; }
+  var rows = [['Item','Categoria/Etiqueta','Cantidad','Unidad','Total']];
+  Object.values(data.porItem).sort(function(a,b){return b.total-a.total;}).forEach(function(it){
+    rows.push([it.nombre, it.etiqueta, it.cantidad.toFixed(2), it.unidad||'', Math.round(it.total)]);
+  });
+  rows.push([]);
+  rows.push(['TOTAL INSUMO','','','', Math.round(data.porEtiqueta.insumo)]);
+  rows.push(['TOTAL FIJO','','','', Math.round(data.porEtiqueta.fijo)]);
+  rows.push(['TOTAL VARIABLE','','','', Math.round(data.porEtiqueta.variable)]);
+  rows.push(['TOTAL GASTOS DEL MES (todo, incluye sin detallar)','','','', Math.round(data.totalGastosMes)]);
+  var csv = rows.map(function(r){ return r.map(function(c){ var s=String(c===null||c===undefined?'':c); return s.indexOf(',')>-1||s.indexOf('"')>-1?'"'+s.replace(/"/g,'""')+'"':s; }).join(','); }).join('\n');
+  var blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = 'gastos_'+data.mes+'.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 };
 
 </script>
