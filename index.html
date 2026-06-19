@@ -1715,7 +1715,7 @@ function guardarTurno(turno){
       for(var pid in sp){var p2=S.productos.find(function(p){return p.id===pid;});
         if(p2){
           var entAntes2=p2.entrada||0;
-          if(sp[pid].entrada)p2.entrada=(p2.entrada||0)+sp[pid].entrada;
+          if(sp[pid].entrada){p2.entrada=(p2.entrada||0)+sp[pid].entrada;p2.stock=(p2.stock||0)+sp[pid].entrada;}
           if(sp[pid].salida){p2.salida=(p2.salida||0)+sp[pid].salida;p2.stock=Math.max(0,(p2.stock||0)-sp[pid].salida);}
           firebase.database().ref('inventario/productos/'+pid).update({entrada:p2.entrada,salida:p2.salida,stock:p2.stock});
           if(sp[pid].entrada>0){
