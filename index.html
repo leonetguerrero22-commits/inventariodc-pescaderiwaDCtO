@@ -419,6 +419,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--negro);color:var(--negro)
       <div id="alertas-dash"></div>
       <div id="top5-valor-venta"></div>
       <button onclick="abrirHistorialIngresos()" style="width:100%;margin-top:14px;padding:13px;border-radius:14px;border:none;background:linear-gradient(135deg,#1F4E79,#2E86AB);color:#fff;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.3px">📦 Historial de Ingresos al Inventario</button>
+      <button onclick="abrirVistaInventario()" style="width:100%;margin-top:10px;padding:13px;border-radius:14px;border:none;background:linear-gradient(135deg,#6A4C93,#8E5FB5);color:#fff;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.3px">👁️ Ver Inventario Completo</button>
+      <button onclick="descargarInventarioCompleto()" style="width:100%;margin-top:10px;padding:13px;border-radius:14px;border:none;background:linear-gradient(135deg,#1E5631,#2E7D32);color:#fff;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.3px">⬇️ Descargar Inventario Completo (CSV)</button>
     </div>
     <!-- INSUMOS -->
     <div id="tab-insumos" class="tab-panel">
@@ -4742,5 +4744,103 @@ window.descargarHistIngresos = function() {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 };
+
+window.descargarInventarioCompleto = function() {
+  var p = S.productos || [];
+  if(!p.length) { showToast('Sin productos en el inventario'); return; }
+  var rows = [['Nombre','Categoria','Stock Actual','Unidad','Entrada Acumulada','Salida Acumulada','Stock Minimo','Costo Unit','Precio Venta','Valor Stock (Costo)','Valor Stock (Venta)','Ultima Modificacion Por','Ultima Modificacion Fecha']];
+  p.slice().sort(function(a,b){ return (a.cat||'').localeCompare(b.cat||'') || (a.nombre||'').localeCompare(b.nombre||''); }).forEach(function(x) {
+    var valorCosto = (x.stock||0)*(x.costo||0);
+    var valorVenta = (x.stock||0)*(x.precio||0);
+    rows.push([
+      x.nombre||'',
+      x.cat||'',
+      x.stock||0,
+      x.unidad||'',
+      x.entrada||0,
+      x.salida||0,
+      x.min||0,
+      x.costo||0,
+      x.precio||0,
+      Math.round(valorCosto),
+      Math.round(valorVenta),
+      x.mod?(x.mod.userName||''):'',
+      x.mod?(x.mod.time||''):''
+    ]);
+  });
+  var csv = rows.map(function(r){ return r.map(function(c){ var s=String(c===null||c===undefined?'':c); return s.indexOf(',')>-1||s.indexOf('"')>-1?'"'+s.replace(/"/g,'""')+'"':s; }).join(','); }).join('\n');
+  var blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = 'inventario_completo_'+hoy()+'.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('✅ Inventario descargado');
+};
+
+/* ── VER INVENTARIO COMPLETO EN PANTALLA ── */
+window.abrirVistaInventario = function() {
+  var modal = document.getElementById('modal-add');
+  var title = document.getElementById('modal-add-title');
+  var body  = document.getElementById('modal-add-body');
+  if(!modal||!title||!body) return;
+  title.textContent = '👁️ Inventario Completo';
+
+  var p = S.productos || [];
+  var cats = ['Todas'].concat(Array.from(new Set(p.map(function(x){ return x.cat||'Sin categoria'; }))));
+
+  var h = '';
+  h += '<div style="display:flex;gap:8px;margin-bottom:10px">';
+  h += '<input type="text" id="vi-buscar" placeholder="🔍 Buscar producto..." style="flex:1;padding:8px;border-radius:10px;border:1px solid #ddd;font-size:12px" oninput="renderVistaInventario()">';
+  h += '<button onclick="descargarInventarioCompleto()" style="padding:8px 14px;border-radius:10px;border:none;background:#1E5631;color:#fff;font-size:12px;font-weight:700;cursor:pointer">⬇️ CSV</button>';
+  h += '</div>';
+  h += '<select id="vi-filtro-cat" style="width:100%;padding:8px;border-radius:10px;border:1px solid #ddd;font-size:12px;margin-bottom:10px" onchange="renderVistaInventario()">';
+  cats.forEach(function(c){ h += '<option value="'+c+'">'+c+'</option>'; });
+  h += '</select>';
+  h += '<div id="vi-resumen" style="font-size:11px;color:#888;margin-bottom:8px"></div>';
+  h += '<div id="vi-lista"></div>';
+  body.innerHTML = h;
+  openModal('modal-add');
+  renderVistaInventario();
+};
+
+window.renderVistaInventario = function() {
+  var lista = document.getElementById('vi-lista');
+  var resumen = document.getElementById('vi-resumen');
+  if(!lista) return;
+  var p = (S.productos || []).slice();
+  var q = ((document.getElementById('vi-buscar')||{}).value||'').toLowerCase().trim();
+  var cat = (document.getElementById('vi-filtro-cat')||{}).value || 'Todas';
+
+  if(cat!=='Todas') p = p.filter(function(x){ return (x.cat||'Sin categoria')===cat; });
+  if(q) p = p.filter(function(x){ return (x.nombre||'').toLowerCase().indexOf(q)!==-1; });
+  p.sort(function(a,b){ return (a.cat||'').localeCompare(b.cat||'') || (a.nombre||'').localeCompare(b.nombre||''); });
+
+  if(resumen) resumen.textContent = p.length+' producto(s) encontrado(s)';
+
+  if(!p.length){ lista.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Sin resultados</div>'; return; }
+
+  var h = '';
+  p.forEach(function(x){
+    var stColor = (x.stock||0)<=0 ? '#B71C1C' : (x.stock||0)<=(x.min||0) ? '#E65100' : '#1E5631';
+    var valorVenta = (x.stock||0)*(x.precio||0);
+    h += '<div style="background:#fafafa;border:1px solid #eee;border-radius:10px;padding:10px 12px;margin-bottom:8px">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center">';
+    h += '<div style="font-size:13px;font-weight:700;color:#1F4E79">'+(x.nombre||'—')+'</div>';
+    h += '<div style="font-size:12px;font-weight:700;color:'+stColor+'">'+(x.stock||0)+' '+(x.unidad||'')+'</div>';
+    h += '</div>';
+    h += '<div style="display:flex;justify-content:space-between;font-size:10px;color:#aaa;margin-top:3px">';
+    h += '<span>'+(x.cat||'')+'</span><span>Min: '+(x.min||0)+'</span>';
+    h += '</div>';
+    h += '<div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-top:4px">';
+    h += '<span>Costo: $ '+Math.round(x.costo||0).toLocaleString('es-CO')+'</span>';
+    h += '<span>Precio: $ '+Math.round(x.precio||0).toLocaleString('es-CO')+'</span>';
+    h += '</div>';
+    h += '<div style="font-size:10px;color:#aaa;margin-top:2px">Valor en stock: $ '+Math.round(valorVenta).toLocaleString('es-CO')+'</div>';
+    h += '</div>';
+  });
+  lista.innerHTML = h;
+};
+
 </script>
 </body>
