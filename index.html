@@ -617,6 +617,8 @@ function toggleAperturaFull(){
 <!-- Firebase via jsDelivr CDN — funciona en GitHub Pages, Safari y Chrome -->
 <script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-app-compat.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-database-compat.min.js"></script>
+<!-- jsPDF para generar el reporte de socios en PDF -->
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
 <script>var DEF_USUARIOS = [
   {id:'u1',nombre:'Admin',rol:'admin',emoji:'👑',pin:'1234',color:'#B71C1C'},
@@ -2267,8 +2269,22 @@ function renderReportes(){
   prod.forEach(function(p){var m=p.precio>0&&p.costo>0?Math.round(((p.precio-p.costo)/p.precio)*100):null;var mc='margen-badge '+(m===null?'':(m>=40?'margen-ok':m>=20?'margen-med':'margen-low'));html+='<div class="precio-row"><span class="precio-nom">'+p.nombre+'</span><input class="precio-inp" id="pr-p-'+p.id+'" type="number" value="'+(p.precio||0)+'" data-pid="'+p.id+'" oninput="updMg(this.dataset.pid)"><input class="precio-inp" id="pr-c-'+p.id+'" type="number" value="'+(p.costo||0)+'" data-pid="'+p.id+'" oninput="updMg(this.dataset.pid)"><span class="'+mc+'" id="mg-'+p.id+'">'+(m!==null?m+'%':'--')+'</span></div>';});
   html+='</div>';
   html+='<div class="rep-card"><div class="rep-title">Reporte WhatsApp</div><button class="wa-btn" onclick="enviarWA()">Generar y enviar por WhatsApp</button></div>';
+  if(currentUser && (currentUser.rol==='admin'||currentUser.rol==='supervisor')){
+    html+='<div class="rep-card"><div class="rep-title">📲 Reporte para Socios</div>';
+    html+='<div style="font-size:11px;color:#888;margin-bottom:12px">Resumen financiero detallado de un periodo: ventas, ingresos por forma de pago, gastos y utilidad neta. Ideal para enviar a los socios del negocio.</div>';
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">';
+    html+='<div><div style="font-size:9px;font-weight:700;color:#888;margin-bottom:4px">DESDE</div><input type="date" id="rs-desde" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-size:12px;box-sizing:border-box"></div>';
+    html+='<div><div style="font-size:9px;font-weight:700;color:#888;margin-bottom:4px">HASTA</div><input type="date" id="rs-hasta" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;font-size:12px;box-sizing:border-box"></div>';
+    html+='</div>';
+    html+='<button class="wa-btn" onclick="enviarReporteSociosWA()">📲 Enviar por WhatsApp</button>';
+    html+='<button class="wa-btn" style="background:#1F4E79;margin-top:8px" onclick="descargarReporteSociosPDF()">⬇️ Descargar PDF</button>';
+    html+='</div>';
+  }
   if(bajosP.length||bajosE.length){html+='<div class="rep-card"><div class="rep-title">Alertas de stock</div><div style="background:#FFF3CD;border-radius:10px;padding:10px;font-size:12px;color:#856404;margin-bottom:10px">';bajosP.concat(bajosE).slice(0,10).forEach(function(p){html+='• '+p.nombre+': '+(p.stock||0)+' '+p.unidad+' (min '+p.min+')<br>';});html+='</div></div>';}
   html+='<div class="rep-card"><div class="rep-title">💰 Reporte de Gastos por Mes</div><div id="reporte-gastos-mes"></div></div>';
+  if(currentUser && (currentUser.rol==='admin'||currentUser.rol==='supervisor')){
+    html+='<div class="rep-card"><div class="rep-title">🚨 Alertas de Compra Anormal</div><div id="alertas-compra-anormal">Cargando...</div></div>';
+  }
   /* Tabla de permisos dinámica */
   var isAdmin = currentUser && currentUser.rol==='admin';
   html+='<div class="rep-card"><div class="rep-title">🔐 Permisos por Rol</div>';
@@ -2309,6 +2325,16 @@ function renderReportes(){
   html+='</div></div>';
   el.innerHTML=html; checkNotif();
   renderReporteGastosMes();
+  renderAlertasCompraAnormal();
+  var rsDesde = document.getElementById('rs-desde');
+  var rsHasta = document.getElementById('rs-hasta');
+  if(rsDesde && rsHasta){
+    var hoyD2 = new Date();
+    var primerDiaMes = hoyD2.getFullYear()+'-'+String(hoyD2.getMonth()+1).padStart(2,'0')+'-01';
+    var hoyStr3 = hoyD2.getFullYear()+'-'+String(hoyD2.getMonth()+1).padStart(2,'0')+'-'+String(hoyD2.getDate()).padStart(2,'0');
+    rsDesde.value = primerDiaMes;
+    rsHasta.value = hoyStr3;
+  }
 }
 function updMg(id){var pp=parseFloat((document.getElementById('pr-p-'+id)||{}).value)||0,co=parseFloat((document.getElementById('pr-c-'+id)||{}).value)||0;var el=document.getElementById('mg-'+id);if(!el)return;if(pp>0&&co>0){var m=Math.round(((pp-co)/pp)*100);el.textContent=m+'%';el.className='margen-badge '+(m>=40?'margen-ok':m>=20?'margen-med':'margen-low');}else{el.textContent='--';el.className='margen-badge';}}
 function guardarPrecios(){for(var i=0;i<S.productos.length;i++){var p=S.productos[i];var ep=document.getElementById('pr-p-'+p.id),ec=document.getElementById('pr-c-'+p.id);if(ep)p.precio=parseFloat(ep.value)||0;if(ec)p.costo=parseFloat(ec.value)||0;if(db)firebase.database().ref('inventario/productos/'+p.id).update({precio:p.precio,costo:p.costo});}showToast('Precios guardados');}
@@ -5278,12 +5304,15 @@ window.calcularReporteGastosMes = function(){
 
     var itemsArr = Object.values(porItem).sort(function(a,b){ return b.total-a.total; });
     var maxTotal = itemsArr.length ? itemsArr[0].total : 1;
-    h += '<div style="font-size:11px;font-weight:700;color:#1F4E79;margin-bottom:8px">🔍 Top items por gasto</div>';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+    h += '<span style="font-size:11px;font-weight:700;color:#1F4E79">🔍 Top items por gasto</span>';
+    h += '<button onclick="abrirSelectorEvolucion()" style="font-size:10px;padding:3px 8px;border-radius:6px;border:1px solid #6A4C93;background:transparent;color:#6A4C93;cursor:pointer">📈 Ver evolución de un insumo</button>';
+    h += '</div>';
     itemsArr.slice(0,10).forEach(function(it){
       var pct = maxTotal>0 ? Math.round(it.total/maxTotal*100) : 0;
       var etColor = it.etiqueta==='insumo'?'#1F4E79':it.etiqueta==='fijo'?'#6A4C93':'#E65100';
-      h += '<div style="margin-bottom:8px">';
-      h += '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span style="font-weight:600">'+it.nombre+'</span><span style="font-weight:700">'+fmtCOP(it.total)+'</span></div>';
+      h += '<div style="margin-bottom:8px;cursor:pointer" onclick="abrirEvolucionPrecio(\''+it.nombre.replace(/'/g,"\\'")+'\')">';
+      h += '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span style="font-weight:600">'+it.nombre+' <span style="font-size:9px;color:#aaa">📈</span></span><span style="font-weight:700">'+fmtCOP(it.total)+'</span></div>';
       h += '<div style="height:6px;background:#eee;border-radius:3px"><div style="width:'+pct+'%;height:100%;background:'+etColor+';border-radius:3px"></div></div>';
       h += '<div style="font-size:10px;color:#aaa;margin-top:1px">'+it.cantidad.toFixed(2)+' '+(it.unidad||'')+'</div>';
       h += '</div>';
@@ -5320,6 +5349,416 @@ window.descargarReporteGastosMes = function(){
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 };
+
+/* ====== ALERTAS DE COMPRA ANORMAL (frecuencia y cantidad) ====== */
+/* ====== REPORTE FINANCIERO PARA SOCIOS (WhatsApp + PDF) ====== */
+function calcularReporteSocios(desde, hasta){
+  var ventas = S.ventas || {};
+  var fechas = Object.keys(ventas).filter(function(f){ return f>=desde && f<=hasta; }).sort();
+
+  var ventaBrutaTotal=0, totalIngresosTotal=0, totalGastosTotal=0;
+  var ingPorForma = {ef_cop:0, ef_usd:0, ef_usd_cop:0, ef_ves:0, ef_ves_cop:0, nequi:0, bancol:0, zelle:0, zelle_cop:0, otros:0};
+  var gastosPorCat = {insumos:0,bebidas:0,empaques:0,nomina:0,domicilios:0,servicios:0,aseo:0,publicidad:0,mant:0,otros:0};
+  var porEtiqueta = {insumo:0, fijo:0, variable:0};
+
+  fechas.forEach(function(f){
+    var reg = ventas[f];
+    ventaBrutaTotal += (reg.ventaBruta||0);
+    totalIngresosTotal += (reg.totalVentas||0);
+    totalGastosTotal += (reg.totalGastos||0);
+    var v = reg.ventas||{};
+    var tasas = reg.tasas || S.tasas || {usd:4200,ves:0.001};
+    ingPorForma.ef_cop += (v.ef_cop||0);
+    ingPorForma.ef_usd += (v.ef_usd||0);
+    ingPorForma.ef_usd_cop += (v.ef_usd||0)*(tasas.usd||4200);
+    ingPorForma.ef_ves += (v.ef_ves||0);
+    ingPorForma.ef_ves_cop += (v.ef_ves||0)*(tasas.ves||0);
+    ingPorForma.nequi += (v.nequi||0);
+    ingPorForma.bancol += (v.bancol||0);
+    ingPorForma.zelle += (v.zelle||0);
+    ingPorForma.zelle_cop += (v.zelle||0)*(tasas.usd||4200);
+    ingPorForma.otros += (v.otros||0);
+
+    var g = reg.gastos||{};
+    Object.keys(gastosPorCat).forEach(function(k){ gastosPorCat[k] += (g[k]||0); });
+
+    var det = reg.gastosDetalle||{};
+    Object.keys(det).forEach(function(catId){
+      (det[catId]||[]).forEach(function(it){
+        var et = it.etiqueta||'insumo';
+        porEtiqueta[et] = (porEtiqueta[et]||0) + (it.subtotal||0);
+      });
+    });
+  });
+
+  var utilidadTotal = ventaBrutaTotal - totalGastosTotal;
+
+  /* Valor del inventario actual (foto del momento, no del periodo) */
+  var prod = S.productos || [];
+  var insumosArr = S.insumos || [];
+  var invCosto = prod.reduce(function(s,x){ return s+(x.stock||0)*(x.costo||0); },0)
+               + insumosArr.reduce(function(s,i){ return s+(i.cant||0)*(i.costo||0); },0);
+  var invVenta = prod.reduce(function(s,x){ return s+(x.stock||0)*(x.precio||0); },0);
+  var invUtilidadPotencial = invVenta - invCosto;
+  var invMargen = invVenta>0 ? Math.round((invUtilidadPotencial/invVenta)*100) : 0;
+
+  return {
+    desde:desde, hasta:hasta, dias:fechas.length,
+    ventaBrutaTotal:ventaBrutaTotal, totalIngresosTotal:totalIngresosTotal,
+    totalGastosTotal:totalGastosTotal, utilidadTotal:utilidadTotal,
+    ingPorForma:ingPorForma, gastosPorCat:gastosPorCat, porEtiqueta:porEtiqueta,
+    invCosto:invCosto, invVenta:invVenta, invUtilidadPotencial:invUtilidadPotencial, invMargen:invMargen
+  };
+}
+
+function fechaLegible(f){
+  return new Date(f+'T12:00:00').toLocaleDateString('es-CO',{day:'numeric',month:'long',year:'numeric'});
+}
+
+window.enviarReporteSociosWA = function(){
+  var desde = (document.getElementById('rs-desde')||{}).value;
+  var hasta = (document.getElementById('rs-hasta')||{}).value;
+  if(!desde||!hasta){ showToast('Selecciona el rango de fechas'); return; }
+  if(desde>hasta){ showToast('La fecha "desde" no puede ser mayor a "hasta"'); return; }
+
+  var r = calcularReporteSocios(desde, hasta);
+  if(!r.dias){ showToast('Sin cierres registrados en ese rango'); return; }
+
+  var L = [];
+  L.push('*DON CAMARÓN — Reporte Financiero*');
+  L.push('Coloncito');
+  L.push(fechaLegible(desde)+' al '+fechaLegible(hasta)+' ('+r.dias+' dias con cierre)');
+  L.push('');
+  L.push('*VENTAS*');
+  L.push('Total Ventas (POS): '+fmtCOP(r.ventaBrutaTotal));
+  L.push('Total Ingresos (real en caja): '+fmtCOP(r.totalIngresosTotal));
+  L.push('');
+  L.push('*INGRESOS POR FORMA DE PAGO*');
+  L.push('Efectivo COP: '+fmtCOP(r.ingPorForma.ef_cop));
+  if(r.ingPorForma.ef_usd>0) L.push('Efectivo USD: '+r.ingPorForma.ef_usd.toFixed(2)+' = '+fmtCOP(r.ingPorForma.ef_usd_cop));
+  if(r.ingPorForma.ef_ves>0) L.push('Bolivares: '+r.ingPorForma.ef_ves.toFixed(2)+' = '+fmtCOP(r.ingPorForma.ef_ves_cop));
+  L.push('Nequi/Daviplata: '+fmtCOP(r.ingPorForma.nequi));
+  L.push('Bancolombia: '+fmtCOP(r.ingPorForma.bancol));
+  if(r.ingPorForma.zelle>0) L.push('Zelle: '+r.ingPorForma.zelle.toFixed(2)+' = '+fmtCOP(r.ingPorForma.zelle_cop));
+  L.push('Otros bancos: '+fmtCOP(r.ingPorForma.otros));
+  L.push('');
+  L.push('*GASTOS*');
+  L.push('Insumos/Compras: '+fmtCOP(r.gastosPorCat.insumos));
+  L.push('Bebidas/Barra: '+fmtCOP(r.gastosPorCat.bebidas));
+  L.push('Empaques: '+fmtCOP(r.gastosPorCat.empaques));
+  L.push('Nomina: '+fmtCOP(r.gastosPorCat.nomina));
+  L.push('Domicilios: '+fmtCOP(r.gastosPorCat.domicilios));
+  L.push('Servicios: '+fmtCOP(r.gastosPorCat.servicios));
+  L.push('Aseo: '+fmtCOP(r.gastosPorCat.aseo));
+  L.push('Publicidad: '+fmtCOP(r.gastosPorCat.publicidad));
+  L.push('Mantenimiento: '+fmtCOP(r.gastosPorCat.mant));
+  L.push('Otros gastos: '+fmtCOP(r.gastosPorCat.otros));
+  L.push('*Total Gastos: '+fmtCOP(r.totalGastosTotal)+'*');
+  if(r.porEtiqueta.insumo+r.porEtiqueta.fijo+r.porEtiqueta.variable>0){
+    L.push('');
+    L.push('*GASTOS POR TIPO (detallados)*');
+    L.push('Insumo: '+fmtCOP(r.porEtiqueta.insumo));
+    L.push('Fijo: '+fmtCOP(r.porEtiqueta.fijo));
+    L.push('Variable: '+fmtCOP(r.porEtiqueta.variable));
+  }
+  L.push('');
+  L.push('*UTILIDAD NETA DEL PERIODO: '+fmtCOP(r.utilidadTotal)+'*');
+  L.push('');
+  L.push('*INVENTARIO ACTUAL (foto de hoy)*');
+  L.push('Valor en costo: '+fmtCOP(r.invCosto));
+  L.push('Valor de venta potencial: '+fmtCOP(r.invVenta));
+  L.push('Utilidad potencial si se vende todo: '+fmtCOP(r.invUtilidadPotencial)+' ('+r.invMargen+'%)');
+
+  window.open('https://wa.me/?text='+encodeURIComponent(L.join(String.fromCharCode(10))),'_blank');
+};
+
+window.descargarReporteSociosPDF = function(){
+  var desde = (document.getElementById('rs-desde')||{}).value;
+  var hasta = (document.getElementById('rs-hasta')||{}).value;
+  if(!desde||!hasta){ showToast('Selecciona el rango de fechas'); return; }
+  if(desde>hasta){ showToast('La fecha "desde" no puede ser mayor a "hasta"'); return; }
+  if(typeof window.jspdf==='undefined'){ showToast('Cargando generador de PDF, intenta de nuevo en un momento'); return; }
+
+  var r = calcularReporteSocios(desde, hasta);
+  if(!r.dias){ showToast('Sin cierres registrados en ese rango'); return; }
+
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF();
+  var y = 20;
+  var pageW = doc.internal.pageSize.getWidth();
+
+  doc.setFontSize(16); doc.setFont(undefined,'bold');
+  doc.text('DON CAMARÓN — Reporte Financiero', pageW/2, y, {align:'center'}); y+=7;
+  doc.setFontSize(11); doc.setFont(undefined,'normal');
+  doc.text('Coloncito', pageW/2, y, {align:'center'}); y+=6;
+  doc.text(fechaLegible(desde)+' al '+fechaLegible(hasta), pageW/2, y, {align:'center'}); y+=5;
+  doc.setFontSize(9); doc.setTextColor(120);
+  doc.text(r.dias+' dia(s) con cierre registrado', pageW/2, y, {align:'center'}); y+=10;
+  doc.setTextColor(0);
+
+  function seccion(titulo){
+    doc.setFillColor(31,78,121);
+    doc.rect(15, y-5, pageW-30, 7, 'F');
+    doc.setTextColor(255); doc.setFontSize(11); doc.setFont(undefined,'bold');
+    doc.text(titulo, 18, y); y+=9;
+    doc.setTextColor(0); doc.setFont(undefined,'normal'); doc.setFontSize(10);
+  }
+  function fila(label, valor, negrita){
+    doc.setFont(undefined, negrita?'bold':'normal');
+    doc.text(label, 18, y);
+    doc.text(valor, pageW-18, y, {align:'right'});
+    y+=6;
+  }
+
+  seccion('VENTAS');
+  fila('Total Ventas (POS)', fmtCOP(r.ventaBrutaTotal));
+  fila('Total Ingresos (real en caja)', fmtCOP(r.totalIngresosTotal));
+  y+=4;
+
+  seccion('INGRESOS POR FORMA DE PAGO');
+  fila('Efectivo COP', fmtCOP(r.ingPorForma.ef_cop));
+  if(r.ingPorForma.ef_usd>0) fila('Efectivo USD ('+r.ingPorForma.ef_usd.toFixed(2)+')', fmtCOP(r.ingPorForma.ef_usd_cop));
+  if(r.ingPorForma.ef_ves>0) fila('Bolivares ('+r.ingPorForma.ef_ves.toFixed(2)+')', fmtCOP(r.ingPorForma.ef_ves_cop));
+  fila('Nequi/Daviplata', fmtCOP(r.ingPorForma.nequi));
+  fila('Bancolombia', fmtCOP(r.ingPorForma.bancol));
+  if(r.ingPorForma.zelle>0) fila('Zelle ('+r.ingPorForma.zelle.toFixed(2)+')', fmtCOP(r.ingPorForma.zelle_cop));
+  fila('Otros bancos', fmtCOP(r.ingPorForma.otros));
+  y+=4;
+
+  seccion('GASTOS');
+  fila('Insumos/Compras', fmtCOP(r.gastosPorCat.insumos));
+  fila('Bebidas/Barra', fmtCOP(r.gastosPorCat.bebidas));
+  fila('Empaques', fmtCOP(r.gastosPorCat.empaques));
+  fila('Nomina', fmtCOP(r.gastosPorCat.nomina));
+  fila('Domicilios', fmtCOP(r.gastosPorCat.domicilios));
+  fila('Servicios', fmtCOP(r.gastosPorCat.servicios));
+  fila('Aseo', fmtCOP(r.gastosPorCat.aseo));
+  fila('Publicidad', fmtCOP(r.gastosPorCat.publicidad));
+  fila('Mantenimiento', fmtCOP(r.gastosPorCat.mant));
+  fila('Otros gastos', fmtCOP(r.gastosPorCat.otros));
+  doc.setDrawColor(200); doc.line(18,y-2,pageW-18,y-2); y+=2;
+  fila('Total Gastos', fmtCOP(r.totalGastosTotal), true);
+  y+=4;
+
+  if(r.porEtiqueta.insumo+r.porEtiqueta.fijo+r.porEtiqueta.variable>0){
+    seccion('GASTOS POR TIPO (detallados)');
+    fila('Insumo', fmtCOP(r.porEtiqueta.insumo));
+    fila('Fijo', fmtCOP(r.porEtiqueta.fijo));
+    fila('Variable', fmtCOP(r.porEtiqueta.variable));
+    y+=4;
+  }
+
+  if(y>250){ doc.addPage(); y=20; }
+  doc.setFillColor(r.utilidadTotal>=0?233:252, r.utilidadTotal>=0?245:235, r.utilidadTotal>=0?233:235);
+  doc.rect(15, y-6, pageW-30, 14, 'F');
+  doc.setFont(undefined,'bold'); doc.setFontSize(13);
+  doc.setTextColor(r.utilidadTotal>=0?30:183, r.utilidadTotal>=0?86:28, r.utilidadTotal>=0?49:28);
+  doc.text('UTILIDAD NETA DEL PERIODO', 18, y+2);
+  doc.text(fmtCOP(r.utilidadTotal), pageW-18, y+2, {align:'right'});
+  doc.setTextColor(0);
+  y+=16;
+
+  if(y>250){ doc.addPage(); y=20; }
+  seccion('INVENTARIO ACTUAL (foto de hoy)');
+  fila('Valor en costo', fmtCOP(r.invCosto));
+  fila('Valor de venta potencial', fmtCOP(r.invVenta));
+  fila('Utilidad potencial ('+r.invMargen+'% margen)', fmtCOP(r.invUtilidadPotencial), true);
+  y+=4;
+
+  doc.setFontSize(8); doc.setFont(undefined,'normal'); doc.setTextColor(150);
+  doc.text('Generado el '+new Date().toLocaleDateString('es-CO')+' por '+(currentUser?currentUser.nombre:'Sistema'), pageW/2, 290, {align:'center'});
+
+  doc.save('reporte_socios_'+desde+'_a_'+hasta+'.pdf');
+};
+
+window.renderAlertasCompraAnormal = function(){
+  var el = document.getElementById('alertas-compra-anormal');
+  if(!el) return;
+
+  var ventas = S.ventas || {};
+  var porInsumo = {}; // nombre -> [{fecha, cantidad}]
+  Object.keys(ventas).sort().forEach(function(fecha){
+    var det = ventas[fecha].gastosDetalle || {};
+    Object.keys(det).forEach(function(catId){
+      (det[catId]||[]).forEach(function(it){
+        if(!porInsumo[it.nombre]) porInsumo[it.nombre]=[];
+        porInsumo[it.nombre].push({fecha:fecha, cantidad:it.cantidad||0, unidad:it.unidad||''});
+      });
+    });
+  });
+
+  var alertasFrecuencia = [];
+  var alertasCantidad = [];
+
+  Object.keys(porInsumo).forEach(function(nombre){
+    var regs = porInsumo[nombre];
+    if(regs.length<3) return; // necesita historial minimo para comparar
+
+    /* Señal A: racha de dias consecutivos comprando lo mismo */
+    var fechasOrdenadas = regs.map(function(r){return r.fecha;}).sort();
+    var rachaMax = 1, rachaActual = 1;
+    for(var i=1;i<fechasOrdenadas.length;i++){
+      var d1 = new Date(fechasOrdenadas[i-1]+'T12:00:00');
+      var d2 = new Date(fechasOrdenadas[i]+'T12:00:00');
+      var difDias = Math.round((d2-d1)/(1000*60*60*24));
+      if(difDias===1){ rachaActual++; rachaMax=Math.max(rachaMax,rachaActual); }
+      else { rachaActual=1; }
+    }
+    if(rachaMax>=4){
+      alertasFrecuencia.push({nombre:nombre, racha:rachaMax});
+    }
+
+    /* Señal B: ultima compra muy por encima del promedio historico */
+    var cantidades = regs.map(function(r){return r.cantidad;});
+    var ultimaCant = cantidades[cantidades.length-1];
+    var promedioPrevias = cantidades.slice(0,-1).reduce(function(s,c){return s+c;},0)/(cantidades.length-1);
+    if(promedioPrevias>0 && ultimaCant > promedioPrevias*2){
+      var pctSobre = Math.round(((ultimaCant-promedioPrevias)/promedioPrevias)*100);
+      alertasCantidad.push({nombre:nombre, ultima:ultimaCant, promedio:promedioPrevias, pct:pctSobre, unidad:regs[0].unidad, fecha:regs[regs.length-1].fecha});
+    }
+  });
+
+  var h = '';
+  if(!alertasFrecuencia.length && !alertasCantidad.length){
+    h += '<div style="text-align:center;padding:14px;color:#888;font-size:12px">✅ Sin patrones raros detectados por ahora</div>';
+    el.innerHTML = h;
+    return;
+  }
+
+  h += '<div style="font-size:10px;color:#888;margin-bottom:10px">Solo visible para admin y supervisor. Compara frecuencia y cantidad contra el historial de cada insumo.</div>';
+
+  alertasFrecuencia.forEach(function(a){
+    h += '<div style="background:#fff3e0;border-left:3px solid #E65100;border-radius:8px;padding:10px 12px;margin-bottom:8px">';
+    h += '<div style="font-size:12px;font-weight:700;color:#E65100">⚠️ '+a.nombre+' — comprado '+a.racha+' dias seguidos</div>';
+    h += '<div style="font-size:11px;color:#7a4f10;margin-top:2px">Vale la pena revisar si hay compras duplicadas o desperdicio</div>';
+    h += '<button onclick="abrirEvolucionPrecio(\''+a.nombre.replace(/'/g,"\\'")+'\')" style="margin-top:6px;font-size:10px;padding:4px 8px;border-radius:6px;border:1px solid #E65100;background:transparent;color:#E65100;cursor:pointer">Ver historial</button>';
+    h += '</div>';
+  });
+
+  alertasCantidad.forEach(function(a){
+    h += '<div style="background:#fce4ec;border-left:3px solid #B71C1C;border-radius:8px;padding:10px 12px;margin-bottom:8px">';
+    h += '<div style="font-size:12px;font-weight:700;color:#B71C1C">⚠️ '+a.nombre+' — compra del '+a.fecha+' fue '+a.pct+'% mayor al promedio</div>';
+    h += '<div style="font-size:11px;color:#8a1c1c;margin-top:2px">Compraste '+a.ultima+' '+a.unidad+' vs un promedio habitual de '+a.promedio.toFixed(1)+' '+a.unidad+'</div>';
+    h += '<button onclick="abrirEvolucionPrecio(\''+a.nombre.replace(/'/g,"\\'")+'\')" style="margin-top:6px;font-size:10px;padding:4px 8px;border-radius:6px;border:1px solid #B71C1C;background:transparent;color:#B71C1C;cursor:pointer">Ver historial</button>';
+    h += '</div>';
+  });
+
+  el.innerHTML = h;
+};
+
+
+function recolectarHistorialInsumo(nombreInsumo){
+  var ventas = S.ventas || {};
+  var registros = [];
+  Object.keys(ventas).sort().forEach(function(fecha){
+    var det = ventas[fecha].gastosDetalle || {};
+    Object.keys(det).forEach(function(catId){
+      (det[catId]||[]).forEach(function(it){
+        if(it.nombre===nombreInsumo){
+          registros.push({fecha:fecha, cantidad:it.cantidad||0, precioUnit:it.precioUnit||0, subtotal:it.subtotal||0, unidad:it.unidad||''});
+        }
+      });
+    });
+  });
+  return registros;
+}
+
+window.abrirSelectorEvolucion = function(){
+  var modal = document.getElementById('modal-add');
+  var title = document.getElementById('modal-add-title');
+  var body  = document.getElementById('modal-add-body');
+  if(!modal||!title||!body) return;
+  title.textContent = '📈 Evolución de Precio';
+  var items = (S.catalogoGastos||[]).slice().sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
+  var h = '';
+  if(!items.length){
+    h += '<div style="text-align:center;padding:20px;color:#888;font-size:12px">Aun no tienes items en el catalogo</div>';
+  } else {
+    h += '<div style="font-size:11px;color:#888;margin-bottom:10px">Selecciona un insumo para ver como ha cambiado su precio en el tiempo</div>';
+    items.forEach(function(it){
+      h += '<div onclick="abrirEvolucionPrecio(\''+it.nombre.replace(/'/g,"\\'")+'\')" style="padding:10px 12px;background:#fafafa;border-radius:8px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">';
+      h += '<span style="font-size:13px;font-weight:600">'+it.nombre+'</span>';
+      h += '<span style="font-size:10px;color:#888">'+it.unidad+' →</span>';
+      h += '</div>';
+    });
+  }
+  body.innerHTML = h;
+  openModal('modal-add');
+};
+
+window.abrirEvolucionPrecio = function(nombreInsumo){
+  var modal = document.getElementById('modal-add');
+  var title = document.getElementById('modal-add-title');
+  var body  = document.getElementById('modal-add-body');
+  if(!modal||!title||!body) return;
+  title.textContent = '📈 '+nombreInsumo;
+
+  var registros = recolectarHistorialInsumo(nombreInsumo);
+
+  var h = '';
+  if(registros.length<2){
+    h += '<div style="text-align:center;padding:20px;color:#888;font-size:12px">Necesitas al menos 2 compras detalladas de este insumo en distintas fechas para ver la evolucion.<br><span style="font-size:10px">Por ahora hay '+registros.length+' registro(s).</span></div>';
+    body.innerHTML = h;
+    openModal('modal-add');
+    return;
+  }
+
+  var precios = registros.map(function(r){return r.precioUnit;});
+  var minP = Math.min.apply(null, precios);
+  var maxP = Math.max.apply(null, precios);
+  var rangoP = maxP - minP || 1;
+  var primerP = registros[0].precioUnit;
+  var ultimoP = registros[registros.length-1].precioUnit;
+  var cambioP = primerP>0 ? Math.round(((ultimoP-primerP)/primerP)*100) : 0;
+  var colorTendencia = cambioP>0 ? '#B71C1C' : cambioP<0 ? '#1E5631' : '#888';
+
+  h += '<div style="background:'+(cambioP>15?'#fff3e0':'#f0f8f4')+';border-radius:10px;padding:12px;margin-bottom:12px;text-align:center">';
+  h += '<div style="font-size:11px;color:#888;margin-bottom:4px">Cambio desde '+registros[0].fecha+' hasta '+registros[registros.length-1].fecha+'</div>';
+  h += '<div style="font-size:22px;font-weight:700;color:'+colorTendencia+'">'+(cambioP>=0?'+':'')+cambioP+'%</div>';
+  h += '<div style="font-size:11px;color:#888;margin-top:2px">'+fmtCOP(primerP)+' → '+fmtCOP(ultimoP)+' por '+registros[0].unidad+'</div>';
+  if(cambioP>15){ h += '<div style="font-size:10px;color:#E65100;margin-top:6px;font-weight:700">⚠️ Subida importante, vale la pena revisar proveedor o precio de venta</div>'; }
+  h += '</div>';
+
+  /* Grafica SVG de linea */
+  var w=300, hgt=120, padL=36, padR=10, padT=10, padB=20;
+  var plotW = w-padL-padR, plotH = hgt-padT-padB;
+  var pts = registros.map(function(r,i){
+    var x = padL + (registros.length===1?0:(i/(registros.length-1))*plotW);
+    var y = padT + plotH - ((r.precioUnit-minP)/rangoP)*plotH;
+    return {x:x,y:y,r:r};
+  });
+  var pathD = pts.map(function(p,i){ return (i===0?'M':'L')+p.x.toFixed(1)+','+p.y.toFixed(1); }).join(' ');
+
+  h += '<svg viewBox="0 0 '+w+' '+hgt+'" style="width:100%;height:140px;background:#fafafa;border-radius:10px">';
+  h += '<line x1="'+padL+'" y1="'+padT+'" x2="'+padL+'" y2="'+(padT+plotH)+'" stroke="#ddd" stroke-width="1"/>';
+  h += '<line x1="'+padL+'" y1="'+(padT+plotH)+'" x2="'+(w-padR)+'" y2="'+(padT+plotH)+'" stroke="#ddd" stroke-width="1"/>';
+  h += '<text x="2" y="'+(padT+4)+'" font-size="8" fill="#888">'+Math.round(maxP).toLocaleString('es-CO')+'</text>';
+  h += '<text x="2" y="'+(padT+plotH)+'" font-size="8" fill="#888">'+Math.round(minP).toLocaleString('es-CO')+'</text>';
+  h += '<path d="'+pathD+'" fill="none" stroke="'+(cambioP>=0?'#B71C1C':'#1E5631')+'" stroke-width="2"/>';
+  pts.forEach(function(p){ h += '<circle cx="'+p.x.toFixed(1)+'" cy="'+p.y.toFixed(1)+'" r="3" fill="'+(cambioP>=0?'#B71C1C':'#1E5631')+'"/>'; });
+  h += '</svg>';
+
+  /* Lista cronologica */
+  h += '<div style="font-size:11px;font-weight:700;color:#1F4E79;margin:12px 0 8px">📋 Historial de compras</div>';
+  registros.slice().reverse().forEach(function(r,idx){
+    var anterior = registros[registros.length-2-idx];
+    var subio = anterior && r.precioUnit>anterior.precioUnit;
+    var bajo = anterior && r.precioUnit<anterior.precioUnit;
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:#fafafa;border-radius:8px;margin-bottom:6px">';
+    h += '<div><div style="font-size:12px;font-weight:600">'+r.fecha+'</div><div style="font-size:10px;color:#888">'+r.cantidad+' '+r.unidad+'</div></div>';
+    h += '<div style="text-align:right"><span style="font-weight:700;font-size:12px">'+fmtCOP(r.precioUnit)+'</span>';
+    if(subio) h += ' <span style="color:#B71C1C">↑</span>';
+    if(bajo) h += ' <span style="color:#1E5631">↓</span>';
+    h += '</div></div>';
+  });
+
+  h += '<button class="btn-primary" style="background:transparent;border:1px solid #ddd;color:#888;margin-top:10px" onclick="abrirSelectorEvolucion()">← Ver otro insumo</button>';
+
+  body.innerHTML = h;
+  openModal('modal-add');
+};
+
+
 
 </script>
 </body>
