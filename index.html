@@ -3220,9 +3220,9 @@ function renderVentas(){
   h += '<div style="background:linear-gradient(135deg,#1F4E79,#2E75B6);border-radius:12px;padding:14px;margin-bottom:14px">';
   h += '<div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.8);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">💰 Total de Ventas del Día</div>';
   h += '<div style="font-size:11px;color:rgba(255,255,255,.6);margin-bottom:8px">Ingresa el total que facturó el negocio hoy (POS / caja)</div>';
-  h += '<input class="cierre-inp" type="number" min="0" step="1000" id="v-venta-bruta" value="'+ventaBrutaDia+'" ';
+  h += '<input class="cierre-inp" type="text" inputmode="numeric" id="v-venta-bruta" value="'+(ventaBrutaDia?Number(ventaBrutaDia).toLocaleString('es-CO'):'')+'" ';
   h += 'style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;font-size:18px;font-weight:700;text-align:center;width:100%" ';
-  h += 'placeholder="0" oninput="calcVentasTotales()">';
+  h += 'placeholder="0" oninput="formatearInputMiles(this);calcVentasTotales()">';
   h += '<div style="font-size:10px;color:rgba(255,255,255,.5);margin-top:6px;text-align:center">Este es el número que aparece en tu POS o caja del día</div>';
   h += '</div>';
 
@@ -3242,7 +3242,12 @@ function renderVentas(){
     h += '<div class="cierre-row">';
     h += '<span class="cierre-label">'+fp.label+'<br><span style="font-size:10px;color:#aaa">'+fp.hint+'</span></span>';
     h += '<div style="text-align:right">';
-    h += '<input class="cierre-inp" type="number" min="0" step="100" id="v-'+fp.id+'" value="'+(vDia[fp.id]||0)+'" oninput="calcVentasTotales()" placeholder="0">';
+    var esDecimal = (fp.id==='ef_usd'||fp.id==='ef_ves'||fp.id==='zelle');
+    if(esDecimal){
+      h += '<input class="cierre-inp" type="number" min="0" step="0.01" id="v-'+fp.id+'" value="'+(vDia[fp.id]||0)+'" oninput="calcVentasTotales()" placeholder="0">';
+    } else {
+      h += '<input class="cierre-inp" type="text" inputmode="numeric" id="v-'+fp.id+'" value="'+(vDia[fp.id]?Number(vDia[fp.id]).toLocaleString('es-CO'):'')+'" oninput="formatearInputMiles(this);calcVentasTotales()" placeholder="0">';
+    }
     if(fp.id==='ef_usd'||fp.id==='zelle'){
       h += '<div style="font-size:10px;color:#888;margin-top:2px" id="conv-'+fp.id+'">= '+fmtCOP((vDia[fp.id]||0)*(tasas.usd||4200))+'</div>';
     } else if(fp.id==='ef_ves'){
@@ -3282,7 +3287,7 @@ function renderVentas(){
     h += '<span class="cierre-label">'+g.label+'</span>';
     h += '<div style="display:flex;align-items:center;gap:6px">';
     h += '<button onclick="abrirDetalleGasto(\''+g.id+'\',\''+g.label.replace(/'/g,"\\'")+'\')" style="font-size:10px;padding:3px 8px;border-radius:6px;border:1px solid #1F4E79;background:transparent;color:#1F4E79;cursor:pointer">'+(itemsCat.length?'✏️ '+itemsCat.length:'+ Detallar')+'</button>';
-    h += '<input class="cierre-inp" type="number" min="0" step="100" id="g-'+g.id+'" value="'+(gDia[g.id]||0)+'" oninput="calcVentasTotales()" placeholder="0"'+(itemsCat.length?' readonly style="background:#f0f0f0;color:#888"':'')+'>';
+    h += '<input class="cierre-inp" type="text" inputmode="numeric" id="g-'+g.id+'" value="'+(gDia[g.id]?Number(gDia[g.id]).toLocaleString('es-CO'):'')+'" oninput="formatearInputMiles(this);calcVentasTotales()" placeholder="0"'+(itemsCat.length?' readonly style="background:#f0f0f0;color:#888"':'')+'>';
     h += '</div></div>';
     if(itemsCat.length){
       h += '<div style="font-size:10px;color:#aaa;margin-top:3px;padding-left:2px">'+itemsCat.map(function(it){return it.nombre+' ('+it.cantidad+')';}).join(', ')+'</div>';
@@ -3555,12 +3560,30 @@ function guardarTasas(){
   calcVentasTotales();
 }
 
+/* ── Formateo de campos numericos con separador de miles mientras se escribe ── */
+function formatearInputMiles(el){
+  var raw = el.value.replace(/\D/g,'');
+  if(!raw){ el.value=''; return; }
+  el.value = Number(raw).toLocaleString('es-CO');
+}
+function valorNumerico(id){
+  var el = document.getElementById(id);
+  if(!el) return 0;
+  var raw = String(el.value).replace(/\D/g,'');
+  return raw ? parseInt(raw,10) : 0;
+}
+
 function calcVentasTotales(){
   var tasas = {
     usd: parseFloat((document.getElementById('tasa-usd')||{}).value)||S.tasas.usd||4200,
     ves: parseFloat((document.getElementById('tasa-ves')||{}).value)||S.tasas.ves||0
   };
-  function v(id){ return parseFloat((document.getElementById(id)||{}).value)||0; }
+  function v(id){
+    if(id==='v-ef_usd'||id==='v-ef_ves'||id==='v-zelle'||id==='tasa-usd'||id==='tasa-ves'){
+      return parseFloat((document.getElementById(id)||{}).value)||0;
+    }
+    return valorNumerico(id);
+  }
 
   /* Conversiones */
   var ef_usd_cop = v('v-ef_usd')*tasas.usd;
@@ -3607,7 +3630,12 @@ function guardarVentasDia(){
     usd: parseFloat((document.getElementById('tasa-usd')||{}).value)||S.tasas.usd||4200,
     ves: parseFloat((document.getElementById('tasa-ves')||{}).value)||S.tasas.ves||0
   };
-  function v(id){ return parseFloat((document.getElementById(id)||{}).value)||0; }
+  function v(id){
+    if(id==='v-ef_usd'||id==='v-ef_ves'||id==='v-zelle'||id==='tasa-usd'||id==='tasa-ves'){
+      return parseFloat((document.getElementById(id)||{}).value)||0;
+    }
+    return valorNumerico(id);
+  }
 
   var ventas = {
     ef_cop: v('v-ef_cop'), ef_usd: v('v-ef_usd'), ef_ves: v('v-ef_ves'),
@@ -3920,7 +3948,12 @@ window.cargarDiaAnterior = function(fecha){
   ];
   formasPago.forEach(function(fp){
     h += '<div class="cierre-row"><span class="cierre-label">'+fp.label+'</span>';
-    h += '<input class="cierre-inp" type="number" min="0" step="1000" id="'+fp.id+'" value="'+fp.val+'"></div>';
+    var esDecimal = (fp.id==='eda-ef_usd'||fp.id==='eda-ef_ves'||fp.id==='eda-zelle');
+    if(esDecimal){
+      h += '<input class="cierre-inp" type="number" min="0" step="0.01" id="'+fp.id+'" value="'+fp.val+'"></div>';
+    } else {
+      h += '<input class="cierre-inp" type="text" inputmode="numeric" id="'+fp.id+'" value="'+(fp.val?Number(fp.val).toLocaleString('es-CO'):'')+'" oninput="formatearInputMiles(this)"></div>';
+    }
   });
 
   /* Gastos */
@@ -3939,7 +3972,7 @@ window.cargarDiaAnterior = function(fecha){
   ];
   gastos.forEach(function(gx){
     h += '<div class="cierre-row"><span class="cierre-label">'+gx.label+'</span>';
-    h += '<input class="cierre-inp" type="number" min="0" step="1000" id="'+gx.id+'" value="'+gx.val+'"></div>';
+    h += '<input class="cierre-inp" type="text" inputmode="numeric" id="'+gx.id+'" value="'+(gx.val?Number(gx.val).toLocaleString('es-CO'):'')+'" oninput="formatearInputMiles(this)"></div>';
   });
 
   /* Motivo de edición */
@@ -3957,13 +3990,12 @@ window.guardarEdicionDia = function(fecha){
   var motivo = (document.getElementById('eda-motivo')||{}).value||'';
   if(!motivo.trim()){ showToast('⚠️ Debes ingresar el motivo de la edición'); return; }
 
-  function v(id){ return parseFloat((document.getElementById(id)||{}).value)||0; }
-
-  var ventas = {
-    ef_cop:v('eda-ef_cop'), ef_usd:v('eda-ef_usd'), ef_ves:v('eda-ef_ves'),
-    nequi:v('eda-nequi'),   bancol:v('eda-bancol'),  zelle:v('eda-zelle'),
-    otros:v('eda-otros')
-  };
+  function v(id){
+    if(id.indexOf('ef_usd')!==-1||id.indexOf('ef_ves')!==-1||id.indexOf('zelle')!==-1||id==='tasa-usd'||id==='tasa-ves'){
+      return parseFloat((document.getElementById(id)||{}).value)||0;
+    }
+    return valorNumerico(id);
+  }
   var gastos = {
     insumos:v('eda-g-insumos'),    bebidas:v('eda-g-bebidas'),
     empaques:v('eda-g-empaques'),  nomina:v('eda-g-nomina'),
@@ -4965,6 +4997,7 @@ var ETIQUETAS_GASTO = [
   {id:'fijo',label:'Fijo',color:'#6A4C93'},
   {id:'variable',label:'Variable',color:'#E65100'}
 ];
+var UNIDADES_GASTO = ['Kg','Gr','Litro','Ml','Unidad','Paquete','Caja','Bulto','Atado','Docena'];
 
 window.abrirCatalogoGastos = function(){
   var modal = document.getElementById('modal-add');
@@ -5021,7 +5054,13 @@ window.abrirNuevoItemCatalogo = function(editKey){
   h += '</select></div>';
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">';
   h += '<div class="field-col"><div class="flabel">Precio de referencia</div><input class="finput" type="number" id="cg-precio" min="0" step="100" value="'+(item?item.precioRef||0:0)+'"></div>';
-  h += '<div class="field-col"><div class="flabel">Unidad</div><input class="finput" id="cg-unidad" placeholder="kg, unidad, litro" value="'+(item?item.unidad||'':'')+'"></div>';
+  h += '<div class="field-col"><div class="flabel">Unidad</div><select class="finput" id="cg-unidad" onchange="toggleUnidadPersonalizada(this)">';
+  var unidadActual = item ? (item.unidad||'') : '';
+  var esConocida = UNIDADES_GASTO.indexOf(unidadActual)!==-1;
+  UNIDADES_GASTO.forEach(function(u){ h += '<option value="'+u+'"'+(unidadActual===u?' selected':'')+'>'+u+'</option>'; });
+  h += '<option value="__otra__"'+(unidadActual&&!esConocida?' selected':'')+'>Otra...</option>';
+  h += '</select>';
+  h += '<input class="finput" id="cg-unidad-custom" placeholder="Escribe la unidad" value="'+(unidadActual&&!esConocida?unidadActual:'')+'" style="margin-top:6px;display:'+(unidadActual&&!esConocida?'block':'none')+'"></div>';
   h += '</div>';
   h += '<div class="field-col" style="margin-bottom:14px"><div class="flabel">Tipo de gasto</div><select class="finput" id="cg-etiqueta">';
   ETIQUETAS_GASTO.forEach(function(e){ h += '<option value="'+e.id+'"'+(item&&item.etiqueta===e.id?' selected':(!item&&e.id==='insumo'?' selected':''))+'>'+e.label+'</option>'; });
@@ -5031,14 +5070,26 @@ window.abrirNuevoItemCatalogo = function(editKey){
   body.innerHTML = h;
 };
 
+window.toggleUnidadPersonalizada = function(sel){
+  var customEl = document.getElementById('cg-unidad-custom');
+  if(!customEl) return;
+  customEl.style.display = sel.value==='__otra__' ? 'block' : 'none';
+};
+
 window.guardarItemCatalogo = function(editKey){
   var nombre = (document.getElementById('cg-nombre')||{}).value||'';
   if(!nombre.trim()){ showToast('Ingresa un nombre'); return; }
+  var unidadSel = (document.getElementById('cg-unidad')||{}).value||'Unidad';
+  var unidadFinal = unidadSel;
+  if(unidadSel==='__otra__'){
+    unidadFinal = ((document.getElementById('cg-unidad-custom')||{}).value||'').trim();
+    if(!unidadFinal){ showToast('Escribe la unidad personalizada'); return; }
+  }
   var item = {
     nombre: nombre.trim(),
     categoria: (document.getElementById('cg-categoria')||{}).value||'otros',
     precioRef: parseFloat((document.getElementById('cg-precio')||{}).value)||0,
-    unidad: (document.getElementById('cg-unidad')||{}).value||'unidad',
+    unidad: unidadFinal,
     etiqueta: (document.getElementById('cg-etiqueta')||{}).value||'insumo'
   };
   var ref = editKey ? firebase.database().ref('inventario/catalogoGastos/'+editKey) : firebase.database().ref('inventario/catalogoGastos').push();
@@ -5144,7 +5195,7 @@ window.confirmarDetalleGasto = function(){
   var items = window._gastosDetalleActual[catId]||[];
   var total = items.reduce(function(s,it){ return s+(it.subtotal||0); },0);
   var inp = document.getElementById('g-'+catId);
-  if(inp){ inp.value = Math.round(total); }
+  if(inp){ inp.value = Math.round(total).toLocaleString('es-CO'); }
   closeModal('modal-add');
   setTimeout(function(){
     if(typeof renderCierre==='function') renderCierre();
