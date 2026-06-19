@@ -4734,7 +4734,15 @@ window.abrirHistorialIngresos = function() {
     }
     var fechas = []; var seen = {};
     registros.forEach(function(r) { if(r.fecha && !seen[r.fecha]) { seen[r.fecha]=true; fechas.push(r.fecha); } });
+    var afectadosBug = registros.filter(function(r){ return r.origen && r.origen.indexOf('Cierre de turno')!==-1; });
     var h = '';
+    if(afectadosBug.length){
+      h += '<div style="background:#fff3e0;border:1px solid #E65100;border-radius:10px;padding:10px 12px;margin-bottom:12px">';
+      h += '<div style="font-size:12px;font-weight:700;color:#E65100;margin-bottom:4px">⚠️ '+afectadosBug.length+' ingreso(s) por Cierre de Turno</div>';
+      h += '<div style="font-size:11px;color:#7a4f10;margin-bottom:8px">Estos productos pudieron quedar con el stock desfasado por un error ya corregido. Revisa el stock físico real de cada uno.</div>';
+      h += '<button onclick="filtrarHistSoloAfectados()" style="width:100%;padding:8px;border-radius:8px;border:none;background:#E65100;color:#fff;font-size:12px;font-weight:700;cursor:pointer">Ver solo estos</button>';
+      h += '</div>';
+    }
     h += '<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">';
     h += '<select id="hi-filtro-fecha" style="flex:1;padding:8px;border-radius:10px;border:1px solid #ddd;font-size:12px" onchange="renderHistIngresos()">';
     h += '<option value="">Todas las fechas</option>';
@@ -4745,8 +4753,14 @@ window.abrirHistorialIngresos = function() {
     h += '<div id="hi-lista"></div>';
     body.innerHTML = h;
     window._histIngresosData = registros;
+    window._histSoloAfectados = false;
     renderHistIngresos();
   });
+};
+
+window.filtrarHistSoloAfectados = function(){
+  window._histSoloAfectados = true;
+  renderHistIngresos();
 };
 
 window.renderHistIngresos = function() {
@@ -4755,6 +4769,9 @@ window.renderHistIngresos = function() {
   var registros = window._histIngresosData || [];
   var filtroFecha = (document.getElementById('hi-filtro-fecha')||{}).value || '';
   if(filtroFecha) registros = registros.filter(function(r){ return r.fecha === filtroFecha; });
+  if(window._histSoloAfectados){
+    registros = registros.filter(function(r){ return r.origen && r.origen.indexOf('Cierre de turno')!==-1; });
+  }
   if(!registros.length) { lista.innerHTML = '<div style="text-align:center;padding:20px;color:#888">Sin ingresos en esta fecha</div>'; return; }
   var porFecha = {};
   registros.forEach(function(r) { var f=r.fecha||'Sin fecha'; if(!porFecha[f]) porFecha[f]=[]; porFecha[f].push(r); });
@@ -4776,6 +4793,10 @@ window.renderHistIngresos = function() {
       h += '<div style="display:flex;justify-content:space-between;font-size:11px;color:#888;margin-top:3px">';
       h += '<span>'+(r.userEmoji||'')+' '+(r.usuario||'—')+'</span><span>'+(r.categoria||'')+'</span>';
       h += '</div>';
+      if(r.origen){
+        var esCierre = r.origen.indexOf('Cierre de turno')!==-1;
+        h += '<div style="font-size:10px;margin-top:2px;color:'+(esCierre?'#E65100':'#888')+'">'+(esCierre?'⚠️ ':'')+r.origen+'</div>';
+      }
       h += '<div style="display:flex;justify-content:space-between;font-size:11px;color:#aaa;margin-top:2px">';
       h += '<span>Entrada: '+(r.entradaAntes||0)+' → '+(r.entradaNueva||0)+'</span>';
       if(r.costo) h += '<span>Costo: '+fmt$(r.costo*(dif>0?dif:0))+'</span>';
