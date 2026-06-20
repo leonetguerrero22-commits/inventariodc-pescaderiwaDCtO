@@ -5291,6 +5291,7 @@ window.abrirDetalleGasto = function(catId, catLabel){
   h += '<button class="btn-primary" style="background:#1F4E79;margin-top:10px" onclick="confirmarDetalleGasto()">✅ Usar este detalle</button>';
   h += '<button class="btn-primary" style="background:transparent;border:1px solid #ddd;color:#888;margin-top:6px" onclick="closeModal(\'modal-add\')">Cerrar</button>';
   body.innerHTML = h;
+  openModal('modal-add');
   renderDetalleItemsLista();
 };
 
