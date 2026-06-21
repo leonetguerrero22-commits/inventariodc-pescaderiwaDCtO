@@ -3665,12 +3665,12 @@ function calcVentasTotales(){
   if(resEl){
     var utilColor = utilidad>=0?'#1E5631':'#B71C1C';
     var sep = utilidad>=0?'#c8e6c9':'#ffcdd2';
-    var diferencia = totalIngresos - ventaBruta;
+    var diferencia = ventaBruta - totalIngresos - totalGastos;
     var difLabel, difColor, difBg, difIcono;
     if(Math.abs(diferencia) < 1){
       difLabel='Cuadra correctamente'; difColor='#1E5631'; difBg='#e8f5e9'; difIcono='✅';
-    } else if(diferencia < 0){
-      difLabel='Falta por registrar / posible faltante'; difColor='#B71C1C'; difBg='#fce4ec'; difIcono='⚠️';
+    } else if(diferencia > 0){
+      difLabel='Falta por registrar (caja o gasto) / posible faltante'; difColor='#B71C1C'; difBg='#fce4ec'; difIcono='⚠️';
     } else {
       difLabel='Hay un sobrante / revisar registro'; difColor='#1565C0'; difBg='#e3f2fd'; difIcono='ℹ️';
     }
@@ -3684,7 +3684,7 @@ function calcVentasTotales(){
       '<span style="font-weight:700;color:'+utilColor+'">'+fmtCOP(utilidad)+'</span></div>'+
       '<div style="background:'+difBg+';border-radius:10px;padding:10px 12px;margin-top:10px">'+
       '<div style="display:flex;justify-content:space-between;align-items:center">'+
-      '<span style="font-size:11px;font-weight:700;color:'+difColor+'">'+difIcono+' Diferencia (Ingresos − Ventas POS)</span>'+
+      '<span style="font-size:11px;font-weight:700;color:'+difColor+'">'+difIcono+' Diferencia (Ventas POS − Ingresos − Egresos)</span>'+
       '<span style="font-weight:700;color:'+difColor+';font-size:14px">'+(diferencia>0?'+':'')+fmtCOP(diferencia)+'</span>'+
       '</div>'+
       '<div style="font-size:10px;color:'+difColor+';margin-top:2px">'+difLabel+'</div>'+
