@@ -3322,6 +3322,9 @@ function renderVentas(){
   h += '<span class="cierre-val" id="total-gastos-cop" style="color:#B71C1C;font-size:15px">'+fmtCOP(totalGastosDia)+'</span>';
   h += '</div>';
 
+  /* Resumen del día / Diferencia (se rellena en calcVentasTotales) */
+  h += '<div id="resultado-neto-dia" style="border-radius:12px;padding:12px 14px;margin-top:14px;background:#f0f8f4"></div>';
+
   /* Notas */
   h += '<div style="margin-top:12px"><div class="flabel" style="font-size:11px;color:#888;margin-bottom:4px">📝 Observaciones del día (opcional)</div>';
   h += '<textarea id="v-notas" rows="2" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:10px;font-family:inherit;font-size:12px;resize:none">'+(registroDia?registroDia.notas||'':'')+'</textarea></div>';
@@ -3405,6 +3408,32 @@ function renderVentas(){
         if(vl.zelle)   h += '<div class="hist-stat"><span>💱 Zelle</span><span>USD '+Number(vl.zelle).toFixed(2)+' = '+fmtCOP(vl.zelle*tasD.usd)+'</span></div>';
         if(vl.otros)   h += '<div class="hist-stat"><span>🏛️ Otros bancos</span><span>'+fmtCOP(vl.otros)+'</span></div>';
       }
+
+      /* Desglose gastos por categoria + detalle por item si existe */
+      if(reg.gastos){
+        var gx = reg.gastos;
+        var detX = reg.gastosDetalle||{};
+        var labelsGasto = {
+          insumos:'🥩 Insumos / Compras', bebidas:'🍹 Bebidas / Barra', empaques:'📦 Empaques',
+          nomina:'👷 Nómina del día', domicilios:'🚗 Domicilios / Moto', servicios:'💡 Servicios',
+          aseo:'🧹 Aseo / Limpieza', publicidad:'📢 Publicidad', mant:'🔧 Mantenimiento', otros:'💰 Otros gastos'
+        };
+        var hayGastos = Object.keys(labelsGasto).some(function(catId){ return (gx[catId]||0) > 0; });
+        if(hayGastos){
+          h += '<div style="font-size:10px;font-weight:700;color:#B71C1C;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 4px">📊 Desglose Gastos</div>';
+          Object.keys(labelsGasto).forEach(function(catId){
+            if(!gx[catId]) return;
+            h += '<div class="hist-stat"><span>'+labelsGasto[catId]+'</span><span>'+fmtCOP(gx[catId])+'</span></div>';
+            var itemsCat = detX[catId]||[];
+            if(itemsCat.length){
+              h += '<div style="font-size:10px;color:#aaa;padding:0 0 4px 14px">';
+              h += itemsCat.map(function(it){ return it.nombre+': '+it.cantidad+' '+(it.unidad||'')+' x '+fmtCOP(it.precioUnit)+' = '+fmtCOP(it.subtotal); }).join('<br>');
+              h += '</div>';
+            }
+          });
+        }
+      }
+
       if(reg.notas) h += '<div class="hist-stat" style="margin-top:6px"><span>📝 Notas</span><span style="color:#555;font-style:italic">'+reg.notas+'</span></div>';
       h += '</div></div>';
     });
