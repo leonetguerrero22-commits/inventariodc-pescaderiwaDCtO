@@ -1718,26 +1718,50 @@ function guardarTurno(turno){
       }
       var data={fecha:fecha,turno:turno,usuario:currentUser?currentUser.nombre:'',hora:hora,productos:productosFusionados,ts:Date.now()};
       firebase.database().ref('cierres/'+key+'/'+turno).set(data);
-      for(var pid in sp){var p2=S.productos.find(function(p){return p.id===pid;});
-        if(p2){
-          var entAntes2=p2.entrada||0;
-          if(sp[pid].entrada){p2.entrada=(p2.entrada||0)+sp[pid].entrada;p2.stock=(p2.stock||0)+sp[pid].entrada;}
-          if(sp[pid].salida){p2.salida=(p2.salida||0)+sp[pid].salida;p2.stock=Math.max(0,(p2.stock||0)-sp[pid].salida);}
-          firebase.database().ref('inventario/productos/'+pid).update({entrada:p2.entrada,salida:p2.salida,stock:p2.stock});
-          if(sp[pid].entrada>0){
+
+      /* Leer stock REAL de Firebase y aplicar solo la diferencia neta
+         (evita doble descuento cuando la memoria local está desactualizada) */
+      firebase.database().ref('inventario/productos').once('value').then(function(snapProds){
+        var fbProds = snapProds.val() || {};
+        for(var pid in sp){
+          var p2 = S.productos.find(function(p){return p.id===pid;});
+          if(!p2) continue;
+          var fbP = fbProds[pid] || {};
+          /* El formulario representa movimientos ADICIONALES: el delta es lo tecleado */
+          var deltaEnt = (sp[pid].entrada||0);
+          var deltaSal = (sp[pid].salida||0);
+          var stockBase   = typeof fbP.stock   === 'number' ? fbP.stock   : (p2.stock||0);
+          var entradaBase = typeof fbP.entrada  === 'number' ? fbP.entrada : (p2.entrada||0);
+          var salidaBase  = typeof fbP.salida   === 'number' ? fbP.salida  : (p2.salida||0);
+          var nuevoStock   = Math.max(0, stockBase   + deltaEnt - deltaSal);
+          var nuevaEntrada = Math.max(0, entradaBase + deltaEnt);
+          var nuevaSalida  = Math.max(0, salidaBase  + deltaSal);
+          p2.stock=nuevoStock; p2.entrada=nuevaEntrada; p2.salida=nuevaSalida;
+          firebase.database().ref('inventario/productos/'+pid).update({entrada:nuevaEntrada,salida:nuevaSalida,stock:nuevoStock});
+          if(deltaEnt>0){
             firebase.database().ref('inventario/historial_ingresos').push({
               productoId:pid, productoNombre:p2.nombre, categoria:p2.cat||'',
-              entradaAntes:entAntes2, entradaNueva:p2.entrada, diferencia:sp[pid].entrada,
+              entradaAntes:entradaBase, entradaNueva:nuevaEntrada, diferencia:deltaEnt,
               unidad:p2.unidad||'', costo:p2.costo||0, precio:p2.precio||0,
               usuario:currentUser?currentUser.nombre:'', userEmoji:currentUser?currentUser.emoji||'':'',
               ts:Date.now(), fecha:fecha, origen:'Cierre de turno ('+(turno==='manana'?'Mañana':'Tarde')+')'
             });
           }
+          /* Registrar en historialInventario para trazabilidad paso a paso */
+          if(deltaSal>0){
+            firebase.database().ref('historialInventario/'+pid).push({
+              fecha:fecha,hora:hora,cantidad:-deltaSal,unidad:p2.unidad||'',
+              motivo:'Cierre turno '+(turno==='manana'?'mañana':'tarde'),
+              usuario:currentUser?currentUser.nombre:'',
+              stockAntes:stockBase+deltaEnt,stockDespues:nuevoStock,
+              origen:'cierre_turno',ts:Date.now()
+            });
+          }
         }
-      }
-      if(!S.cierres)S.cierres={};if(!S.cierres[key])S.cierres[key]={};S.cierres[key][turno]=data;
-      fbLog('cierre','Turno '+turno+' — '+Object.keys(sp).length+' producto(s) agregado(s)/actualizado(s)');
-      showToast('Turno '+(turno==='manana'?'mañana':'tarde')+' guardado');renderCierre();
+        if(!S.cierres)S.cierres={};if(!S.cierres[key])S.cierres[key]={};S.cierres[key][turno]=data;
+        fbLog('cierre','Turno '+turno+' — '+Object.keys(sp).length+' producto(s) guardado(s)');
+        showToast('Turno '+(turno==='manana'?'mañana':'tarde')+' guardado');renderCierre();
+      });
     });
   } else {
     showToast('Sin conexión a Firebase');
@@ -2424,28 +2448,71 @@ window.guardarNuevoPlato=function(){var nom=((document.getElementById('np-nom')|
 window.registrarPlato=function(platoId){
   var plato=PLATOS_MENU.find(function(p){return p.id===platoId;});
   if(!plato)return;
+  /* Guard contra doble clic */
+  if(window._regPlatoGuard){return;}
+  window._regPlatoGuard=true;
   var qEl=document.getElementById('rest-qty-'+platoId);
   var cantidad=qEl?(parseInt(qEl.value)||1):1;
-  for(var i=0;i<plato.ingredientes.length;i++){
-    var ing=plato.ingredientes[i];
-    var prod4=S.productos.find(function(p){return p.id===ing.pid;});
-    if(!prod4)continue;
-    var iqEl=document.getElementById('ing-qty-'+platoId+'-'+ing.pid);
-    var ingQty=iqEl?(parseFloat(iqEl.value)||ing.qty):ing.qty;
-    var desc=ingQty*cantidad;
-    prod4.stock=Math.max(0,(prod4.stock||0)-desc);
-    prod4.salida=(prod4.salida||0)+desc;
-    if(db){try{firebase.database().ref('inventario/productos/'+prod4.id).update({stock:prod4.stock,salida:prod4.salida});}catch(e){}}
-  }
   var hora=new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
-  var entrada={tipo:'plato',id:platoId,nombre:plato.nombre,precio:plato.precio,cantidad:cantidad,hora:hora,ts:Date.now(),ingredientes:plato.ingredientes.slice()};
-  fbLog('restaurante','[REST] '+cantidad+'x '+plato.nombre);
-  restTurnoLog.push(entrada);
-  /* Guardar en Firebase por fecha */
-  if(db) firebase.database().ref('restaurante/log/'+hoy().replace(/-/g,'_')).push(entrada);
-  restExpanded=null;
-  showToast('Registrado y descontado');
-  renderRestaurante();
+  var fechaHoy=hoy();
+
+  function finalizarRegistro(){
+    var entrada={tipo:'plato',id:platoId,nombre:plato.nombre,precio:plato.precio,cantidad:cantidad,hora:hora,ts:Date.now(),ingredientes:plato.ingredientes.slice()};
+    fbLog('restaurante','[REST] '+cantidad+'x '+plato.nombre);
+    restTurnoLog.push(entrada);
+    if(db) firebase.database().ref('restaurante/log/'+fechaHoy.replace(/-/g,'_')).push(entrada);
+    restExpanded=null;
+    window._regPlatoGuard=false;
+    showToast('Registrado y descontado');
+    renderRestaurante();
+  }
+
+  if(!db || !plato.ingredientes.length){
+    /* Sin conexión o sin ingredientes: solo registra el plato */
+    plato.ingredientes.forEach(function(ing){
+      var prod4=S.productos.find(function(p){return p.id===ing.pid;});
+      if(!prod4)return;
+      var iqEl=document.getElementById('ing-qty-'+platoId+'-'+ing.pid);
+      var ingQty=iqEl?(parseFloat(iqEl.value)||ing.qty):ing.qty;
+      var desc=ingQty*cantidad;
+      prod4.stock=Math.max(0,(prod4.stock||0)-desc);
+      prod4.salida=(prod4.salida||0)+desc;
+    });
+    finalizarRegistro();
+    return;
+  }
+
+  /* Leer stock REAL de Firebase antes de descontar los ingredientes */
+  firebase.database().ref('inventario/productos').once('value').then(function(snapProds){
+    var fbProds=snapProds.val()||{};
+    plato.ingredientes.forEach(function(ing){
+      var prod4=S.productos.find(function(p){return p.id===ing.pid;});
+      if(!prod4)return;
+      var iqEl=document.getElementById('ing-qty-'+platoId+'-'+ing.pid);
+      var ingQty=iqEl?(parseFloat(iqEl.value)||ing.qty):ing.qty;
+      var desc=ingQty*cantidad;
+      var fbP=fbProds[ing.pid]||{};
+      var stockBase =typeof fbP.stock ==='number'?fbP.stock :(prod4.stock||0);
+      var salidaBase=typeof fbP.salida==='number'?fbP.salida:(prod4.salida||0);
+      var nuevoStock=Math.max(0,stockBase-desc);
+      var nuevaSalida=salidaBase+desc;
+      prod4.stock=nuevoStock;
+      prod4.salida=nuevaSalida;
+      try{firebase.database().ref('inventario/productos/'+prod4.id).update({stock:nuevoStock,salida:nuevaSalida});}catch(e){}
+      /* Trazabilidad: registrar cada descuento de ingrediente */
+      firebase.database().ref('historialInventario/'+prod4.id).push({
+        fecha:fechaHoy,hora:hora,cantidad:-desc,unidad:prod4.unidad||'',
+        motivo:'🍽️ Plato: '+cantidad+'× '+plato.nombre,
+        usuario:currentUser?currentUser.nombre:'',
+        stockAntes:stockBase,stockDespues:nuevoStock,
+        origen:'restaurante_plato',ts:Date.now()
+      });
+    });
+    finalizarRegistro();
+  }).catch(function(){
+    window._regPlatoGuard=false;
+    showToast('Error de conexión, intenta de nuevo');
+  });
 };
 window.ejecutarDescuentoRapido=function(){
   var sel=document.getElementById('dq-prod'),qEl=document.getElementById('dq-qty'),obsEl=document.getElementById('dq-obs'),fechaEl=document.getElementById('dq-fecha');
@@ -2455,29 +2522,49 @@ window.ejecutarDescuentoRapido=function(){
   if(!pid||!qty){showToast('Selecciona producto y cantidad');return;}
   var prod5=S.productos.find(function(p){return p.id===pid;});
   if(!prod5){showToast('Producto no encontrado');return;}
-  prod5.stock=Math.max(0,(prod5.stock||0)-qty);
-  prod5.salida=(prod5.salida||0)+qty;
-  if(db){try{firebase.database().ref('inventario/productos/'+prod5.id).update({stock:prod5.stock,salida:prod5.salida});}catch(e){}}
+  /* Guard contra doble clic */
+  if(window._descRapidoGuard){return;}
+  window._descRapidoGuard=true;
   var hora=new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
   var notaFecha=fechaDesc!==hoy()?' (fecha: '+fechaDesc+')':'';
-  var entrada={tipo:'rapido',prodId:pid,nombre:prod5.nombre,unidad:prod5.unidad,cantidad:qty,hora:hora,obs:obs,fecha:fechaDesc,ts:Date.now(),usuario:currentUser?currentUser.nombre:'',userId:currentUser?currentUser.id:''};
-  fbLog('restaurante','[RAPIDO] -'+qty+' '+prod5.unidad+' '+prod5.nombre+notaFecha);
-  restTurnoLog.push(entrada);
-  /* Guardar en Firebase por fecha — ruta compartida entre todos los usuarios */
-  if(db){
-    firebase.database().ref('restaurante/log/'+fechaDesc.replace(/-/g,'_')).push(entrada);
-    /* También guardar en descuentosRapidos para vista compartida */
-    firebase.database().ref('descuentosRapidos/'+fechaDesc.replace(/-/g,'_')).push(entrada);
-    /* Guardar historial de inventario por producto */
-    firebase.database().ref('historialInventario/'+pid).push({
-      fecha:fechaDesc,hora:hora,cantidad:-qty,unidad:prod5.unidad,
-      motivo:obs,usuario:currentUser?currentUser.nombre:'',
-      stockAntes:(prod5.stock||0)+qty,stockDespues:prod5.stock,
-      origen:'descuento_rapido',ts:Date.now()
-    });
+
+  function guardarDescuento(stockAntes,stockDespues,nuevaSalida){
+    prod5.stock=stockDespues;
+    prod5.salida=nuevaSalida;
+    if(db){try{firebase.database().ref('inventario/productos/'+prod5.id).update({stock:stockDespues,salida:nuevaSalida});}catch(e){}}
+    var entrada={tipo:'rapido',prodId:pid,nombre:prod5.nombre,unidad:prod5.unidad,cantidad:qty,hora:hora,obs:obs,fecha:fechaDesc,ts:Date.now(),usuario:currentUser?currentUser.nombre:'',userId:currentUser?currentUser.id:''};
+    fbLog('restaurante','[RAPIDO] -'+qty+' '+prod5.unidad+' '+prod5.nombre+notaFecha);
+    restTurnoLog.push(entrada);
+    if(db){
+      firebase.database().ref('restaurante/log/'+fechaDesc.replace(/-/g,'_')).push(entrada);
+      firebase.database().ref('descuentosRapidos/'+fechaDesc.replace(/-/g,'_')).push(entrada);
+      firebase.database().ref('historialInventario/'+pid).push({
+        fecha:fechaDesc,hora:hora,cantidad:-qty,unidad:prod5.unidad,
+        motivo:obs,usuario:currentUser?currentUser.nombre:'',
+        stockAntes:stockAntes,stockDespues:stockDespues,
+        origen:'descuento_rapido',ts:Date.now()
+      });
+    }
+    window._descRapidoGuard=false;
+    showToast('-'+qty+' '+prod5.unidad+' de '+prod5.nombre+(notaFecha?' (día anterior)':''));
+    renderRestaurante();
   }
-  showToast('-'+qty+' '+prod5.unidad+' de '+prod5.nombre+(notaFecha?' (día anterior)':''));
-  renderRestaurante();
+
+  if(db){
+    /* Leer stock REAL de Firebase antes de descontar */
+    firebase.database().ref('inventario/productos/'+pid).once('value').then(function(snapP){
+      var fbP=snapP.exists()?snapP.val():{};
+      var stockAntes =typeof fbP.stock ==='number'?fbP.stock :(prod5.stock||0);
+      var salidaAntes=typeof fbP.salida==='number'?fbP.salida:(prod5.salida||0);
+      guardarDescuento(stockAntes, Math.max(0,stockAntes-qty), salidaAntes+qty);
+    }).catch(function(){
+      window._descRapidoGuard=false;
+      showToast('Error de conexión, intenta de nuevo');
+    });
+  } else {
+    var sa=(prod5.stock||0);
+    guardarDescuento(sa, Math.max(0,sa-qty), (prod5.salida||0)+qty);
+  }
 };
 window.limpiarTurno=function(){if(!confirm('Iniciar nuevo turno?'))return;restTurnoLog=[];restView='menu';renderRestaurante();showToast('Nuevo turno iniciado');};
 function renderRestaurante(){
@@ -4752,14 +4839,32 @@ window.revertirDescuentoRapido = function(fechaKey, fbKey, prodId, cantidad, nom
     })
   );
 
-  /* Devolver stock */
-  if(prod){
-    prod.stock=(prod.stock||0)+cantidad;
-    prod.salida=Math.max(0,(prod.salida||0)-cantidad);
-    promesas.push(
-      firebase.database().ref('inventario/productos/'+prodId).update({stock:prod.stock,salida:prod.salida})
-    );
-  }
+  /* Devolver stock leyendo el valor REAL de Firebase primero */
+  promesas.push(
+    firebase.database().ref('inventario/productos/'+prodId).once('value').then(function(snapP){
+      var fbP=snapP.exists()?snapP.val():null;
+      var prod = S.productos.find(function(p){return p.id===prodId;});
+      var stockAntes =fbP&&typeof fbP.stock ==='number'?fbP.stock :(prod?(prod.stock||0):0);
+      var salidaAntes=fbP&&typeof fbP.salida==='number'?fbP.salida:(prod?(prod.salida||0):0);
+      var stockDespues=stockAntes+cantidad;
+      var salidaDespues=Math.max(0,salidaAntes-cantidad);
+      if(prod){
+        prod.stock=stockDespues;
+        prod.salida=salidaDespues;
+      }
+      /* Trazabilidad de la reversión */
+      firebase.database().ref('historialInventario/'+prodId).push({
+        fecha:fechaKey.replace(/_/g,'-'),
+        hora:new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}),
+        cantidad:cantidad,unidad:prod?(prod.unidad||''):'',
+        motivo:'🔄 Reversión de descuento rápido',
+        usuario:currentUser?currentUser.nombre:'',
+        stockAntes:stockAntes,stockDespues:stockDespues,
+        origen:'reversion_descuento',ts:Date.now()
+      });
+      return firebase.database().ref('inventario/productos/'+prodId).update({stock:stockDespues,salida:salidaDespues});
+    })
+  );
 
   Promise.all(promesas).then(function(){
     fbLog('edit','🔄 Descuento revertido: '+cantidad+' '+nombre+' del '+fechaKey.replace(/_/g,'-')+' — Admin: '+(currentUser?currentUser.nombre:''));
@@ -4862,17 +4967,26 @@ window.guardarEdicionCierre = function() {
     datos._editado = {por: currentUser?currentUser.nombre:'', motivo:motivo, ts:Date.now()};
 
     firebase.database().ref('cierres/'+fechaKey+'/'+turno).set(datos).then(function(){
-      var promises = ajustesStock.map(function(aj){
-        var prod = S.productos.find(function(p){return p.id===aj.pid;});
-        if(!prod) return Promise.resolve();
-        prod.stock   = Math.max(0, (prod.stock||0)   + aj.difE - aj.difS);
-        prod.salida  = Math.max(0, (prod.salida||0)  + aj.difS);
-        prod.entrada = Math.max(0, (prod.entrada||0) + aj.difE);
-        return firebase.database().ref('inventario/productos/'+aj.pid).update({
-          stock: prod.stock, salida: prod.salida, entrada: prod.entrada
+      if(!ajustesStock.length) return Promise.resolve();
+      /* Leer stock REAL de Firebase antes de aplicar los deltas */
+      return firebase.database().ref('inventario/productos').once('value').then(function(snapProds){
+        var fbProds = snapProds.val() || {};
+        var promises = ajustesStock.map(function(aj){
+          var prod = S.productos.find(function(p){return p.id===aj.pid;});
+          var fbP = fbProds[aj.pid] || {};
+          var stockBase   = typeof fbP.stock   === 'number' ? fbP.stock   : (prod?(prod.stock||0):0);
+          var salidaBase  = typeof fbP.salida   === 'number' ? fbP.salida  : (prod?(prod.salida||0):0);
+          var entradaBase = typeof fbP.entrada  === 'number' ? fbP.entrada : (prod?(prod.entrada||0):0);
+          var nuevoStock   = Math.max(0, stockBase   + aj.difE - aj.difS);
+          var nuevaSalida  = Math.max(0, salidaBase  + aj.difS);
+          var nuevaEntrada = Math.max(0, entradaBase + aj.difE);
+          if(prod){ prod.stock=nuevoStock; prod.salida=nuevaSalida; prod.entrada=nuevaEntrada; }
+          return firebase.database().ref('inventario/productos/'+aj.pid).update({
+            stock: nuevoStock, salida: nuevaSalida, entrada: nuevaEntrada
+          });
         });
+        return Promise.all(promises);
       });
-      return Promise.all(promises);
     }).then(function(){
       var resumen = ajustesStock.map(function(aj){
         return aj.nombre+' (E:'+(aj.difE>=0?'+':'')+aj.difE.toFixed(0)+' S:'+(aj.difS>=0?'+':'')+aj.difS.toFixed(0)+')';
