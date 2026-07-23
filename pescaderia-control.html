@@ -654,13 +654,13 @@ var APP = {};
    Erwing: crea el proyecto en console.firebase.google.com (misma cuenta),
    activa Realtime Database (reglas .read/.write true) y pega aquí la config. */
 var firebaseConfig = {
-  apiKey: "PEGA_AQUI_TU_API_KEY",
+  apiKey: "AIzaSyCKSme-wLa6bjaY9MAQPv_TtXEfcJXP3S8",
   authDomain: "control-pescaderia.firebaseapp.com",
   databaseURL: "https://control-pescaderia-default-rtdb.firebaseio.com",
   projectId: "control-pescaderia",
   storageBucket: "control-pescaderia.firebasestorage.app",
-  messagingSenderId: "PEGA_AQUI",
-  appId: "PEGA_AQUI"
+  messagingSenderId: "259281566852",
+  appId: "1:259281566852:web:e12276ace06d46af7756d1"
 };
 /* URL de la app ANTERIOR de Coloncito (solo lectura, para la migración) */
 var DB_VIEJA = "https://inventario-doncamaron-default-rtdb.firebaseio.com";
@@ -956,6 +956,14 @@ APP.instalarApp = function(){
 window.addEventListener('appinstalled', function(){
   var b = document.getElementById('btn-instalar');
   if(b) b.style.display = 'none';
+});
+/* El botón de instalar siempre visible cuando la app corre por internet
+   (en GitHub Pages); si Chrome no ofrece el prompt, damos el camino manual */
+window.addEventListener('DOMContentLoaded', function(){
+  if(location.protocol.indexOf('http') === 0 && !window.matchMedia('(display-mode: standalone)').matches){
+    var b = document.getElementById('btn-instalar');
+    if(b) b.style.display = 'block';
+  }
 });
 
 function init(){
