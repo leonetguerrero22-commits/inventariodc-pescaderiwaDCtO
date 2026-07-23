@@ -406,6 +406,7 @@ select.inp{appearance:none;-webkit-appearance:none}
     </div>
     <div class="card">
       <div class="lbl">Resumen</div>
+      <div class="tot-line" id="r-rest-wrap" style="display:none"><span>🍽️ Salió al restaurante (a costo)</span><b id="r-rest">$0</b></div>
       <div class="tot-line"><span>Efectivo contado (a tasas)</span><b id="r-contado">$0</b></div>
       <div class="tot-line"><span>＋ Pagos digitales (Nequi/Bancol/Zelle)</span><b id="r-dig">$0</b></div>
       <div class="tot-line"><span>− Fondo inicial</span><b id="r-fondo">$0</b></div>
@@ -546,6 +547,11 @@ select.inp{appearance:none;-webkit-appearance:none}
       <button class="acc in" onclick="APP.modalCompra()">＋ Compra</button>
       <button class="acc out" onclick="APP.modalMerma()">📉 Merma</button>
     </div>
+    <button class="btn" style="margin:0 0 12px;background:var(--mar);box-shadow:none" onclick="APP.modalSalidaRest()">🍽️ Salida al restaurante</button>
+    <div class="acciones" style="margin-top:0">
+      <button class="acc" style="background:var(--noche)" onclick="APP.abrirRevision()">📋 Revisión física</button>
+      <button class="acc" style="background:var(--gris)" onclick="APP.descargarPlanilla()">⬇️ Planilla</button>
+    </div>
     <div class="cats" id="al-cats"></div>
     <div id="al-lista"></div>
     <button class="btn sec" onclick="APP.abrirMovInv()">📚 Ver movimientos de inventario</button>
@@ -554,6 +560,21 @@ select.inp{appearance:none;-webkit-appearance:none}
 </div>
 
 <!-- ══════════ MOVIMIENTOS DE INVENTARIO ══════════ -->
+<!-- ══════════ REVISIÓN FÍSICA DE INVENTARIO ══════════ -->
+<div class="screen" id="s-revision">
+  <div class="hd azul">
+    <div class="mini" id="rv-fecha"></div>
+    <h1>📋 Revisión física</h1>
+    <div class="sub">Cuenta la cava real · la app detecta las diferencias</div>
+  </div>
+  <div class="wrap">
+    <div class="nota" style="background:#E8F6F5;border-color:#BEE5E2;color:#0E5F59">Recorre la cava anotando lo que hay <b>de verdad</b>. Al guardar, la app compara contra el sistema y te muestra cada diferencia antes de ajustar — ahí saltan los movimientos que no cuadran.</div>
+    <div id="rv-lista"></div>
+    <button class="btn verde" id="btn-revision" onclick="APP.revisarDiferencias()">🔍 Ver diferencias y ajustar</button>
+    <button class="btn sec" onclick="APP.abrirAlmacen()">← Volver a la pescadería</button>
+  </div>
+</div>
+
 <div class="screen" id="s-movinv">
   <div class="hd">
     <div class="mini">Trazabilidad completa</div>
@@ -575,8 +596,24 @@ select.inp{appearance:none;-webkit-appearance:none}
     <div class="sub" id="inf-sub">Ventas, ingresos y gastos del período</div>
   </div>
   <div class="wrap">
+    <button class="btn" style="background:var(--mar);box-shadow:none;margin-bottom:12px" onclick="APP.abrirSalud()">🩺 Salud del negocio · análisis completo</button>
     <div class="cats" id="inf-periodos"></div>
     <div id="inf-cont"><div class="cargando">Cargando datos…</div></div>
+  </div>
+</div>
+
+<!-- ══════════ SALUD DEL NEGOCIO ══════════ -->
+<div class="screen" id="s-salud">
+  <div class="hd">
+    <button class="salir" onclick="APP.logout()">Salir</button>
+    <div class="mini" id="sl-fecha"></div>
+    <h1>🩺 Salud del negocio</h1>
+    <div class="sub">Todo lo que necesitas para decidir, en una vista</div>
+  </div>
+  <div class="wrap" style="margin-top:4px">
+    <div id="sl-cont"><div class="cargando">Haciendo el chequeo…</div></div>
+    <button class="btn" style="background:#25D366;box-shadow:none" onclick="APP.compartirSalud()">📲 Compartir chequeo por WhatsApp</button>
+    <button class="btn sec" onclick="APP.abrirInformes()">← Volver a informes</button>
   </div>
 </div>
 
@@ -902,7 +939,8 @@ function atrasInterno(){
   if(p === 's-cerrado'){ APP.renderApertura(); return true; }
   if(p === 's-caja'){ APP.renderApertura(); return true; }
   if(p === 's-conteo' || p === 's-req'){ APP.abrirLinea(); return true; }
-  if(p === 's-movinv'){ APP.abrirAlmacen(); return true; }
+  if(p === 's-movinv' || p === 's-revision'){ APP.abrirAlmacen(); return true; }
+  if(p === 's-salud'){ APP.abrirInformes(); return true; }
   if(p === 's-disponible'){ APP.abrirCuentas(); return true; }
   return false;
 }
@@ -1022,6 +1060,9 @@ function init(){
   db.ref('inventario/requisiciones').orderByKey().limitToLast(25).on('value', function(snap){
     APP.reqs = snap.val()||{};
     if(APP._pantalla === 's-almacen') renderAlmacen();
+  });
+  db.ref('preciosCompra').on('value', function(snap){
+    APP._preciosCompra = snap.val()||{};
   });
   db.ref('cuentas').on('value', function(snap){
     APP.ctas = snap.val()||{};
@@ -1194,7 +1235,7 @@ function pintarNavBase(p){
   nav.style.display = 'flex';
 }
 APP.pintarNav = function(){
-  var mapa = {'s-apertura':'caja','s-caja':'caja','s-cierre':'caja','s-cerrado':'caja','s-historial':'historial','s-usuarios':'usuarios','s-linea':'linea','s-conteo':'linea','s-req':'linea','s-almacen':'almacen','s-movinv':'almacen','s-informes':'informes','s-cuentas':'cuentas','s-disponible':'cuentas'};
+  var mapa = {'s-apertura':'caja','s-caja':'caja','s-cierre':'caja','s-cerrado':'caja','s-historial':'historial','s-usuarios':'usuarios','s-linea':'linea','s-conteo':'linea','s-req':'linea','s-almacen':'almacen','s-movinv':'almacen','s-revision':'almacen','s-informes':'informes','s-salud':'informes','s-cuentas':'cuentas','s-disponible':'cuentas'};
   var act = mapa[APP._pantalla]||'';
   document.querySelectorAll('#nav button').forEach(function(b){
     b.classList.toggle('on', b.id === 'nav-'+act);
@@ -1380,6 +1421,7 @@ function renderCaja(){
       }
       var montoTx = (m.moneda === 'USD') ? '$'+(m.monto||0)+' USD' : ((m.moneda === 'VES') ? 'Bs '+(m.monto||0).toLocaleString('es-CO') : fmtCOP(m.monto||0));
       var subTx = horaStr(m.ts)
+        + (m.cant ? ' · '+fmtQty(m.cant)+' '+escapa(m.unidad||'')+' × '+fmtCOP(m.precioUnit||0) : '')
         + (m.banco ? ' · '+escapa(m.banco) : '')
         + (m.ref ? ' · ref '+escapa(m.ref) : '')
         + (m.autoriza ? ' · autorizó '+escapa(m.autoriza) : '')
@@ -1441,9 +1483,22 @@ APP.modalMov = function(tipo){
     h += '<div id="mv-banco-wrap" style="display:none"><div class="flabel">Banco</div><select class="inp" id="mv-banco"></select></div>';
     h += '<div id="mv-ref-wrap" style="display:none"><div class="flabel">Nº de referencia de la transferencia</div><input class="inp" id="mv-ref" type="text" inputmode="numeric" placeholder="Ej: 004521879"></div>';
   }
-  h += '<div class="flabel" id="mv-monto-lbl">Monto (COP)</div><input class="inp" id="mv-monto" type="text" inputmode="numeric" placeholder="0" oninput="APP.fmtMiles(this)">';
-  h += '<div class="conv" id="mv-conv" style="margin-top:4px"></div>';
-  h += '<div class="flabel">Motivo</div><input class="inp" id="mv-motivo" type="text" placeholder="'+(esIn?'Ej: pago mesa 4, cambio…':'Ej: aguacates, hielo, mototaxi…')+'">';
+  h += '<div id="mv-monto-wrap"><div class="flabel" id="mv-monto-lbl">Monto (COP)</div><input class="inp" id="mv-monto" type="text" inputmode="numeric" placeholder="0" oninput="APP.fmtMiles(this)">';
+  h += '<div class="conv" id="mv-conv" style="margin-top:4px"></div></div>';
+  h += '<div class="flabel">'+(esIn?'Motivo':'¿Qué es? (producto o concepto)')+'</div><input class="inp" id="mv-motivo" type="text" placeholder="'+(esIn?'Ej: pago mesa 4, cambio…':'Ej: aguacates, hielo, mototaxi…')+'" oninput="APP.calcCompraEgreso && APP.calcCompraEgreso()">';
+  if(!esIn){
+    /* compras detalladas: cantidad + unidad + precio → el total se calcula solo */
+    h += '<div id="mv-compra-wrap">';
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">';
+    h += '<div><div class="flabel">Cantidad</div><input class="inp" id="mv-cant" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0" oninput="APP.calcCompraEgreso()"></div>';
+    h += '<div><div class="flabel">Unidad</div><select class="inp" id="mv-unidad">';
+    ['kg','gr','und','paq','lt','gal','caja','docena','bolsa'].forEach(function(u){ h += '<option>'+u+'</option>'; });
+    h += '</select></div></div>';
+    h += '<div class="flabel">Precio por unidad (COP)</div><input class="inp" id="mv-punit" type="text" inputmode="numeric" placeholder="0" oninput="APP.fmtMiles(this);APP.calcCompraEgreso()">';
+    h += '<div class="tot-line big" style="margin-top:8px"><span>Total de la compra</span><b id="mv-total-compra" style="color:var(--rojo)">$0</b></div>';
+    h += '<div id="mv-vigilante" style="margin-top:6px"></div>';
+    h += '</div>';
+  }
   if(!esIn){
     h += '<div class="flabel">Tipo de gasto</div><div class="metodos" id="mv-tipos" style="grid-template-columns:1fr">';
     TIPOS_GASTO.forEach(function(t){
@@ -1456,7 +1511,7 @@ APP.modalMov = function(tipo){
   h += '<button class="btn '+(esIn?'verde':'')+'" id="mv-guardar" style="margin-top:16px'+(esIn?'':';background:var(--rojo);box-shadow:0 4px 14px rgba(192,57,43,.25)')+'" onclick="APP.guardarMov(\''+tipo+'\')">'+(esIn?'＋ Registrar ingreso':'－ Registrar egreso')+'</button>';
   h += '<button class="btn sec" onclick="APP.cerrarModal()">Cancelar</button>';
   abrirModal(esIn ? '＋ Ingreso a caja' : '－ Egreso de caja', h);
-  if(!esIn){ APP._tipoGastoSel = 'compras'; llenarCategorias('mv-cat','compras',null); }
+  if(!esIn){ APP.pickTipoGasto('compras'); }
 };
 APP._tipoGastoSel = 'compras';
 function llenarCategorias(selectId, tipo, seleccionada){
@@ -1475,6 +1530,35 @@ APP.pickTipoGasto = function(id){
     if(b) b.classList.toggle('sel', t.id === id);
   });
   llenarCategorias('mv-cat', id, null);
+  /* 🛒 Compras: el monto se arma con cantidad × precio (anti-inflado);
+     gastos fijos/variables: monto normal */
+  var esCompra = id === 'compras';
+  var wc = document.getElementById('mv-compra-wrap');
+  var wm = document.getElementById('mv-monto-wrap');
+  if(wc) wc.style.display = esCompra ? 'block' : 'none';
+  if(wm) wm.style.display = esCompra ? 'none' : 'block';
+};
+APP.calcCompraEgreso = function(){
+  var cant = parseFloat((document.getElementById('mv-cant')||{}).value)||0;
+  var punit = valMiles('mv-punit');
+  var tot = Math.round(cant*punit);
+  var el = document.getElementById('mv-total-compra');
+  if(el) el.textContent = fmtCOP(tot);
+  /* vigilante de precios: compara contra la última compra del mismo producto */
+  var vig = document.getElementById('mv-vigilante');
+  if(!vig) return;
+  var nombre = ((document.getElementById('mv-motivo')||{}).value||'').trim().toLowerCase();
+  if(!nombre || !punit){ vig.innerHTML = ''; return; }
+  var prev = (APP._preciosCompra||{})[claveSegura(nombre)];
+  if(prev && prev.p > 0){
+    var unidad = (document.getElementById('mv-unidad')||{}).value||'';
+    if(prev.u === unidad && punit > prev.p*1.15){
+      var pct = Math.round((punit-prev.p)/prev.p*100);
+      vig.innerHTML = '<div style="background:#FDECEA;border:1px solid #F5C6C0;border-radius:10px;padding:8px 10px;font-size:11px;font-weight:700;color:#8B2A20">📈 La última vez se compró a '+fmtCOP(prev.p)+'/'+prev.u+' ('+(prev.f||'')+') — ahora '+fmtCOP(punit)+' (+'+pct+'%)</div>';
+    } else if(prev.u === unidad){
+      vig.innerHTML = '<div style="font-size:10px;color:var(--gris)">Última compra: '+fmtCOP(prev.p)+'/'+prev.u+' el '+(prev.f||'')+'</div>';
+    } else { vig.innerHTML = ''; }
+  } else { vig.innerHTML = ''; }
 };
 APP.pickMetodo = function(id){
   APP._movMetodo = id;
@@ -1535,6 +1619,17 @@ APP.guardarMov = function(tipo){
   var tGasto = APP._tipoGastoSel||'compras';
   var banco = (document.getElementById('mv-banco')||{}).value||'';
   var ref = ((document.getElementById('mv-ref')||{}).value||'').trim();
+  var esCompraDet = (tipo === 'egreso' && tGasto === 'compras');
+  var cantC = 0, unidadC = '', punitC = 0;
+  if(esCompraDet){
+    cantC = parseFloat((document.getElementById('mv-cant')||{}).value)||0;
+    unidadC = (document.getElementById('mv-unidad')||{}).value||'und';
+    punitC = valMiles('mv-punit');
+    if(!motivo.trim()){ toast('Escribe qué compraste'); return; }
+    if(cantC <= 0){ toast('Ingresa la cantidad (¿cuántos kg, unidades…?)'); return; }
+    if(punitC <= 0){ toast('Ingresa el precio por unidad'); return; }
+    monto = Math.round(cantC*punitC);
+  }
   if(!monto){ toast('Ingresa el monto'); return; }
   if(!motivo.trim()){ toast('Escribe el motivo'); return; }
   /* detector de referencias duplicadas dentro del turno */
@@ -1554,6 +1649,12 @@ APP.guardarMov = function(tipo){
   var btn = document.getElementById('mv-guardar');
   if(btn){ btn.disabled = true; btn.textContent = 'Guardando…'; }
   var mov = {tipo:tipo, monto:monto, motivo:motivo.trim(), usuario:APP.user.nombre, ts:Date.now()};
+  if(esCompraDet){
+    mov.cant = cantC; mov.unidad = unidadC; mov.precioUnit = punitC;
+    /* memoria de precios para el vigilante */
+    var claveP = claveSegura(motivo.trim().toLowerCase());
+    db.ref('preciosCompra/'+claveP).set({p:punitC, u:unidadC, f:fechaOperativa(), ts:Date.now()}).catch(function(){});
+  }
   if(tipo === 'ingreso'){
     mov.metodo = APP._movMetodo;
     if(info.moneda !== 'COP') mov.moneda = info.moneda;
@@ -1789,9 +1890,29 @@ document.getElementById('foto-inp').addEventListener('change', function(e){
 });
 
 /* ═══════════ CIERRE ═══════════ */
+APP._salidasHoy = {costo:0, venta:0, n:0};
+function cargarSalidasHoy(fecha){
+  db.ref('inventario/salidasRest').orderByChild('fecha').equalTo(fecha).once('value').then(function(snap){
+    var v = snap.val()||{};
+    var costo = 0, venta = 0, n = 0;
+    Object.keys(v).forEach(function(k){
+      costo += (v[k].totalCosto||0);
+      venta += (v[k].totalVenta||0);
+      n++;
+    });
+    APP._salidasHoy = {costo:costo, venta:venta, n:n};
+    var w = document.getElementById('r-rest-wrap');
+    var e = document.getElementById('r-rest');
+    if(w && e){
+      w.style.display = n ? 'flex' : 'none';
+      e.innerHTML = fmtCOP(costo)+(venta?' <small style="font-weight:700;color:var(--gris)">· ref. venta '+fmtCOP(venta)+'</small>':'');
+    }
+  }).catch(function(){});
+}
 APP.irCierre = function(){
   var d = APP.turnoData;
   if(!d){ toast('No hay turno activo'); return; }
+  cargarSalidasHoy(d.fecha||fechaOperativa());
   APP.goScreen('s-cierre');
   var tN = d.turno === 'man' ? 'Mañana' : 'Noche';
   document.getElementById('ci-mini').textContent = 'Turno '+tN+' · '+d.apertura.cajera;
@@ -1923,6 +2044,7 @@ APP.guardarCierre = function(){
       ingresosRegistrados: c.ingTotal, egresos: c.egr,
       egresosPorCategoria: egrCat, egresosPorTipo: egrTipo,
       ventaTurno: Math.round(c.venta), totalPOS: c.pos, posAcumulado: c.posAcum, cortePrevio: c.posPrev, diferencia: c.posAcum ? Math.round(c.dif) : 0, arqueoDirecto: c.posAcum ? false : true,
+      salidasRestCosto: APP._salidasHoy.costo||0, salidasRestVenta: APP._salidasHoy.venta||0,
       notas: (document.getElementById('c-notas')||{}).value||'',
       cajera: d.apertura.cajera, emoji: d.apertura.emoji||'', firmadoPor: APP.user.nombre,
       ts: Date.now()
@@ -2185,6 +2307,7 @@ function textoCierre(fecha, turno, ci){
   t.push('📲 Pagos digitales: '+fmtCOP(ci.pagosDigitales||0));
   t.push('💰 Fondo inicial: '+fmtCOP(ci.fondoEq||0));
   t.push('🧾 Egresos del día: '+fmtCOP(ci.egresos||0));
+  if(ci.salidasRestCosto){ t.push('🍽️ Al restaurante (costo): '+fmtCOP(ci.salidasRestCosto)+(ci.salidasRestVenta?' (ref. venta '+fmtCOP(ci.salidasRestVenta)+')':'')); }
   t.push('────────────────');
   t.push('✅ *Venta del turno: '+fmtCOP(ci.ventaTurno||0)+'*');
   t.push('🗒️ Venta anotada: '+fmtCOP(ci.totalPOS||0));
@@ -2297,6 +2420,7 @@ function filasMovsRO(d, i, conTurno){
     if(!esIn && m.categoria) extra = '<span class="catchip">'+iconoTipo(m.tipoGasto)+' '+escapa(m.categoria)+'</span>';
     var montoTx = (m.moneda === 'USD') ? '$'+(m.monto||0)+' USD' : ((m.moneda === 'VES') ? 'Bs '+(m.monto||0).toLocaleString('es-CO') : fmtCOP(m.monto||0));
     var subTx = horaStr(m.ts)
+      + (m.cant ? ' · '+fmtQty(m.cant)+' '+escapa(m.unidad||'')+' × '+fmtCOP(m.precioUnit||0) : '')
       + (m.banco ? ' · '+escapa(m.banco) : '')
       + (m.ref ? ' · ref '+escapa(m.ref) : '')
       + (m.autoriza ? ' · aut. '+escapa(m.autoriza) : '');
@@ -3036,7 +3160,8 @@ function renderAlmacen(){
       var p = APP.prods[id];
       var alm = p.almacen||0;
       var e = alm <= 0 ? 'r' : (alm < (p.minimo||0) ? 'a' : 'v');
-      var costoTx = (p.costo>0) ? fmtCOP(p.costo)+' / '+escapa(p.unidad) : 'sin costo';
+      var costoTx = (p.costo>0) ? 'costo '+fmtCOP(p.costo) : 'sin costo';
+      if(p.venta>0) costoTx += ' · vende '+fmtCOP(p.venta);
       var tendTx = '', grafica = '';
       var hist = p.precios||[];
       if(hist.length >= 2){
@@ -3052,7 +3177,7 @@ function renderAlmacen(){
         });
         grafica += '</div>';
       }
-      h += '<div class="item" onclick="APP.modalProducto(\''+id+'\')" style="cursor:pointer"><div class="dot '+e+'"></div>';
+      h += '<div class="item" onclick="APP.kardexProducto(\''+id+'\')" style="cursor:pointer"><div class="dot '+e+'"></div>';
       h += '<div class="tx"><b>'+escapa(p.nombre)+'</b><span>'+costoTx+tendTx+' · línea: '+fmtQty(p.linea)+'</span>'+grafica+'</div>';
       h += '<div class="qty '+(e==='v'?'':e)+'">'+fmtQty(alm)+' '+escapa(p.unidad)+'<small>cava</small></div></div>';
     });
@@ -3082,7 +3207,7 @@ APP.despachar = function(k){
   upd['inventario/requisiciones/'+k+'/tsDespacho'] = Date.now();
   db.ref().update(upd).then(function(){
     db.ref('inventario/movimientos').push({
-      tipo:'despacho', detalle:'Req. Nº '+r.numero+': '+resumen.join(', '),
+      tipo:'despacho', prodIds: Object.keys(r.items||{}), detalle:'Req. Nº '+r.numero+': '+resumen.join(', '),
       usuario: APP.user.nombre, ts: Date.now(), fecha: fechaOperativa()
     });
     log('despacho', 'Req. Nº '+r.numero);
@@ -3158,7 +3283,7 @@ APP.guardarCompra = function(){
   }
   db.ref().update(upd).then(function(){
     db.ref('inventario/movimientos').push({
-      tipo:'compra', detalle: p.nombre+' +'+fmtQty(cant)+' '+p.unidad+(costo?' a '+fmtCOP(costo)+'/'+p.unidad:'')+(nota?' · '+nota:''),
+      tipo:'compra', prodId: pid, detalle: p.nombre+' +'+fmtQty(cant)+' '+p.unidad+(costo?' a '+fmtCOP(costo)+'/'+p.unidad:'')+(nota?' · '+nota:''),
       usuario: APP.user.nombre, ts: Date.now(), fecha: fechaOperativa()
     });
     log('compra', p.nombre+' +'+fmtQty(cant));
@@ -3190,7 +3315,7 @@ APP.guardarMerma = function(){
   db.ref('inventario/productos/'+pid+'/'+campo).set(nuevo).then(function(){
     var perdida = (p.costo||0)*cant;
     db.ref('inventario/movimientos').push({
-      tipo:'merma', detalle: p.nombre+' −'+fmtQty(cant)+' '+p.unidad+' de '+(origen==='linea'?'línea':'almacén')+' · '+motivo.trim()+(perdida?' · pérdida '+fmtCOP(perdida):''),
+      tipo:'merma', prodId: pid, detalle: p.nombre+' −'+fmtQty(cant)+' '+p.unidad+' de '+(origen==='linea'?'línea':'la cava')+' · '+motivo.trim()+(perdida?' · pérdida '+fmtCOP(perdida):''),
       usuario: APP.user.nombre, ts: Date.now(), fecha: fechaOperativa()
     });
     log('merma', p.nombre+' −'+fmtQty(cant)+' ('+origen+')');
@@ -3209,7 +3334,8 @@ APP.modalProducto = function(id){
   h += '</select>';
   h += '<div class="flabel">Unidad</div><input class="inp" id="pr-unidad" type="text" value="'+escapa(p.unidad)+'" placeholder="kg, paq, und…">';
   h += '<div class="flabel">Mínimo en línea</div><input class="inp" id="pr-minimo" type="number" inputmode="decimal" min="0" step="0.05" value="'+(p.minimo||0)+'">';
-  h += '<div class="flabel">Costo unitario (COP)</div><input class="inp" id="pr-costo" type="text" inputmode="numeric" value="'+((p.costo||0)?(p.costo).toLocaleString('es-CO'):'')+'" placeholder="0" oninput="APP.fmtMiles(this)">';
+  h += '<div class="flabel">Costo unitario (COP) — lo que te cuesta</div><input class="inp" id="pr-costo" type="text" inputmode="numeric" value="'+((p.costo||0)?(p.costo).toLocaleString('es-CO'):'')+'" placeholder="0" oninput="APP.fmtMiles(this)">';
+  h += '<div class="flabel">Precio de venta (COP) — lo que paga el cliente</div><input class="inp" id="pr-venta" type="text" inputmode="numeric" value="'+((p.venta||0)?(p.venta).toLocaleString('es-CO'):'')+'" placeholder="0" oninput="APP.fmtMiles(this)">';
   h += '<div class="flabel">Cantidad en línea</div><input class="inp" id="pr-linea" type="number" inputmode="decimal" min="0" step="0.05" value="'+(p.linea||0)+'">';
   h += '<div class="flabel">Cantidad en almacén</div><input class="inp" id="pr-almacen" type="number" inputmode="decimal" min="0" step="0.05" value="'+(p.almacen||0)+'">';
   h += '<button class="btn verde" style="margin-top:16px" onclick="APP.guardarProducto('+(id?'\''+id+'\'':'null')+')">💾 Guardar producto</button>';
@@ -3226,6 +3352,7 @@ APP.guardarProducto = function(id){
     unidad: ((document.getElementById('pr-unidad')||{}).value||'und').trim(),
     minimo: parseFloat((document.getElementById('pr-minimo')||{}).value)||0,
     costo: valMiles('pr-costo'),
+    venta: valMiles('pr-venta'),
     linea: parseFloat((document.getElementById('pr-linea')||{}).value)||0,
     almacen: parseFloat((document.getElementById('pr-almacen')||{}).value)||0,
     orden: id ? (APP.prods[id].orden||0) : Object.keys(APP.prods).length
@@ -3265,7 +3392,7 @@ APP.abrirMovInv = function(){
     });
     lista.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
     lista = lista.slice(0,40);
-    var IC = {compra:'🛒', merma:'📉', despacho:'📦', conteo:'✏️', req:'📋'};
+    var IC = {compra:'🛒', merma:'📉', despacho:'📦', conteo:'✏️', req:'📄', restaurante:'🍽️', revision:'📋'};
     var h = '';
     lista.forEach(function(m){
       var badge = '';
@@ -3328,7 +3455,8 @@ function cargarInformes(){
   document.getElementById('inf-sub').textContent = (APP._perInf===1 ? 'Hoy '+desde : 'Del '+desde+' a hoy');
   Promise.all([
     db.ref('caja/turnos').orderByKey().startAt(desde).once('value'),
-    db.ref('historico/ventas').orderByKey().startAt(desde).once('value')
+    db.ref('historico/ventas').orderByKey().startAt(desde).once('value'),
+    db.ref('inventario/salidasRest').orderByChild('fecha').startAt(desde).once('value')
   ]).then(function(res){
     var val = res[0].val()||{};
     var cierres = [];
@@ -3337,6 +3465,7 @@ function cargarInformes(){
       if(d && d.estado === 'cerrada' && d.cierre && (d.fecha||'') >= desde) cierres.push(d);
     });
     APP._histMig = res[1].val()||{};
+    APP._salidasInf = res[2].val()||{};
     renderInformes(cierres, desde);
   }).catch(function(e){
     cont.innerHTML = '<div class="vacio">⚠️ No se pudieron cargar los datos<br>'+escapa(String(e && e.message || e).slice(0,60))+'</div>';
@@ -3448,6 +3577,29 @@ function renderInformes(cierres, desde){
   /* Egresos por categoría (top 10) */
   var cats = Object.keys(egrCat).map(function(k){ return {tx:escapa(k), val:egrCat[k]}; }).sort(function(a,b){ return b.val-a.val; }).slice(0,10);
   h += '<div class="card"><div class="lbl">🏷️ Egresos por categoría (top 10)</div>'+barras(cats, 'var(--rojo)')+'</div>';
+  /* 🍽️ enviado al restaurante en el período */
+  var srC = 0, srV = 0, srN = 0;
+  var porProd = {};
+  Object.keys(APP._salidasInf||{}).forEach(function(k){
+    var s = APP._salidasInf[k];
+    if(!s || (s.fecha||'') < desde) return;
+    srC += (s.totalCosto||0); srV += (s.totalVenta||0); srN++;
+    var nom = s.nombre||'?';
+    if(!porProd[nom]) porProd[nom] = {cant:0, unidad:s.unidad||'', costo:0};
+    porProd[nom].cant += (s.cant||0);
+    porProd[nom].costo += (s.totalCosto||0);
+  });
+  if(srN){
+    h += '<div class="card"><div class="lbl">🍽️ Enviado al restaurante</div>';
+    h += '<div class="tot-line"><span>Al costo (registrado)</span><b>'+fmtCOP(srC)+'</b></div>';
+    if(srV){
+      h += '<div class="tot-line"><span>Si se hubiera vendido</span><b style="color:var(--gris)">'+fmtCOP(srV)+'</b></div>';
+      h += '<div class="tot-line"><span>Venta sacrificada</span><b style="color:var(--coral)">'+fmtCOP(srV-srC)+'</b></div>';
+    }
+    var nombres = Object.keys(porProd).sort(function(a,b){ return porProd[b].costo-porProd[a].costo; }).slice(0,8);
+    h += barras(nombres.map(function(nm){ return {tx:escapa(nm)+' ('+fmtQty(porProd[nm].cant)+' '+escapa(porProd[nm].unidad)+')', val:porProd[nm].costo}; }), 'var(--mar)');
+    h += '</div>';
+  }
   h += '<div style="font-size:10px;color:var(--gris);text-align:center;margin-top:4px">'+cierres.length+' cierres'+(nHist?' + '+nHist+' días del histórico migrado':'')+' · desde el '+desde+'</div>';
   cont.innerHTML = h;
 }
@@ -4317,6 +4469,517 @@ APP.ejecutarMigracion = function(){
     migLog('🚨 Error: '+escapa(String(e && e.message || e).slice(0,80))+' — revisa el internet y reintenta.');
     toast('⚠️ La migración se interrumpió');
   });
+};
+
+/* ── 🍽️ Salida al restaurante: traspaso interno a PRECIO DE COSTO ──
+   El restaurante "compra" a la pescadería al costo (no te encareces a ti mismo),
+   pero se guarda también cuánto valía a precio de cliente: la venta sacrificada. */
+APP.modalSalidaRest = function(){
+  var h = '';
+  h += '<div class="nota" style="background:#E8F6F5;border-color:#BEE5E2;color:#0E5F59">Se descuenta de la cava y queda registrado <b>al costo</b> (como si el restaurante te comprara), con la referencia de cuánto valía a precio de venta.</div>';
+  h += '<div class="flabel">Producto</div>'+selectProductos('sr-prod', null).replace('APP.actCostoCompra && APP.actCostoCompra()', 'APP.infoSalidaRest()');
+  h += '<div class="flabel">Cantidad que sale</div><input class="inp" id="sr-cant" type="number" inputmode="decimal" min="0" step="0.05" placeholder="0" oninput="APP.infoSalidaRest()">';
+  h += '<div id="sr-info" style="margin-top:10px"></div>';
+  h += '<div class="flabel">Nota (opcional)</div><input class="inp" id="sr-nota" type="text" placeholder="Ej: pedido del mediodía">';
+  h += '<button class="btn verde" style="margin-top:14px" id="btn-sr" onclick="APP.guardarSalidaRest()">🍽️ Registrar salida</button>';
+  h += '<button class="btn sec" onclick="APP.cerrarModal()">Cancelar</button>';
+  abrirModal('🍽️ Salida al restaurante', h);
+  APP.infoSalidaRest();
+};
+APP.infoSalidaRest = function(){
+  var cont = document.getElementById('sr-info');
+  if(!cont) return;
+  var pid = (document.getElementById('sr-prod')||{}).value;
+  var cant = parseFloat((document.getElementById('sr-cant')||{}).value)||0;
+  var p = APP.prods[pid];
+  if(!p || cant <= 0){ cont.innerHTML = ''; return; }
+  var costo = (p.costo||0)*cant;
+  var venta = (p.venta||0)*cant;
+  var h = '';
+  h += '<div class="tot-line"><span>📦 Disponible en cava</span><b>'+fmtQty(p.almacen||0)+' '+escapa(p.unidad)+((p.almacen||0) < cant ? ' <span style="color:var(--rojo)">⚠️ no alcanza</span>' : '')+'</b></div>';
+  h += '<div class="tot-line big"><span>💵 Al costo (se registra)</span><b style="color:var(--mar)">'+fmtCOP(costo)+'</b></div>';
+  if(venta > 0){
+    h += '<div class="tot-line"><span>🏷️ Si lo hubieras vendido</span><b style="color:var(--gris)">'+fmtCOP(venta)+'</b></div>';
+    h += '<div style="font-size:10px;color:var(--gris);margin-top:4px">Diferencia (venta sacrificada): '+fmtCOP(venta-costo)+'</div>';
+  } else {
+    h += '<div style="font-size:10px;color:var(--gris);margin-top:4px">Este producto no tiene precio de venta asignado — tócalo en la cava para ponérselo y ver la referencia.</div>';
+  }
+  cont.innerHTML = h;
+};
+APP._guardandoSR = false;
+APP.guardarSalidaRest = function(){
+  if(APP._guardandoSR) return;
+  var pid = (document.getElementById('sr-prod')||{}).value;
+  var cant = parseFloat((document.getElementById('sr-cant')||{}).value)||0;
+  var nota = ((document.getElementById('sr-nota')||{}).value||'').trim();
+  var p = APP.prods[pid];
+  if(!p){ toast('Elige el producto'); return; }
+  if(cant <= 0){ toast('Ingresa la cantidad'); return; }
+  if((p.almacen||0) < cant){
+    if(!confirm('⚠️ En la cava solo hay '+fmtQty(p.almacen||0)+' '+p.unidad+' y vas a sacar '+fmtQty(cant)+'.\n¿Registrar igual? (quedará en 0)')) return;
+  }
+  APP._guardandoSR = true;
+  var btn = document.getElementById('btn-sr');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ Guardando…'; }
+  var costoU = p.costo||0, ventaU = p.venta||0;
+  var upd = {};
+  upd['inventario/productos/'+pid+'/almacen'] = Math.max(0, Math.round(((p.almacen||0) - cant)*100)/100);
+  var key = db.ref('inventario/salidasRest').push().key;
+  upd['inventario/salidasRest/'+key] = {
+    fecha: fechaOperativa(), ts: Date.now(),
+    prodId: pid, nombre: p.nombre, cant: cant, unidad: p.unidad,
+    costoUnit: costoU, ventaUnit: ventaU,
+    totalCosto: Math.round(costoU*cant), totalVenta: Math.round(ventaU*cant),
+    nota: nota, usuario: APP.user.nombre
+  };
+  db.ref().update(upd).then(function(){
+    db.ref('inventario/movimientos').push({
+      tipo:'restaurante', prodId: pid,
+      detalle: p.nombre+' −'+fmtQty(cant)+' '+p.unidad+' al restaurante · costo '+fmtCOP(costoU*cant)+(ventaU?' · ref. venta '+fmtCOP(ventaU*cant):'')+(nota?' · '+nota:''),
+      usuario: APP.user.nombre, ts: Date.now(), fecha: fechaOperativa()
+    });
+    log('salida-restaurante', p.nombre+' −'+fmtQty(cant)+' · '+fmtCOP(costoU*cant));
+    toast('🍽️ Salida registrada al costo');
+    APP._guardandoSR = false;
+    APP.cerrarModal();
+  }).catch(function(e){
+    APP._guardandoSR = false;
+    if(btn){ btn.disabled = false; btn.textContent = '🍽️ Registrar salida'; }
+    toast('⚠️ No se guardó: '+String(e && e.message || e).slice(0,50));
+  });
+};
+
+/* ═══════════ REVISIÓN FÍSICA · PLANILLA · KARDEX ═══════════ */
+
+/* ── 📋 Revisión física de la cava (semanal o cuando quieras) ── */
+APP.abrirRevision = function(){
+  APP.goScreen('s-revision');
+  document.getElementById('rv-fecha').textContent = fechaLegible(fechaOperativa())+' · revisa '+APP.user.nombre;
+  var porCat = {};
+  prodsOrdenados().forEach(function(id){
+    var p = APP.prods[id];
+    if(!porCat[p.categoria]) porCat[p.categoria] = [];
+    porCat[p.categoria].push(id);
+  });
+  var h = '';
+  CATS_INV.forEach(function(c){
+    if(!porCat[c]) return;
+    h += '<div class="card"><div class="lbl">'+c+'</div>';
+    porCat[c].forEach(function(id){
+      var p = APP.prods[id];
+      h += '<div class="item"><div class="tx"><b>'+escapa(p.nombre)+'</b><span>sistema: '+fmtQty(p.almacen||0)+' '+escapa(p.unidad)+'</span></div>';
+      h += '<input class="cinp" id="rv-'+id+'" type="number" inputmode="decimal" min="0" step="0.05" value="'+(p.almacen||0)+'"></div>';
+    });
+    h += '</div>';
+  });
+  document.getElementById('rv-lista').innerHTML = h || '<div class="vacio">Sin productos aún</div>';
+};
+APP.revisarDiferencias = function(){
+  var difs = [];
+  prodsOrdenados().forEach(function(id){
+    var el = document.getElementById('rv-'+id);
+    if(!el) return;
+    var contado = parseFloat(el.value);
+    if(isNaN(contado) || contado < 0) contado = 0;
+    var sistema = APP.prods[id].almacen||0;
+    var d = Math.round((contado - sistema)*100)/100;
+    if(d !== 0) difs.push({id:id, sistema:sistema, contado:contado, dif:d});
+  });
+  if(!difs.length){
+    if(confirm('🎉 Todo cuadró: lo contado coincide con el sistema.\n¿Registrar la revisión como conforme?')){
+      db.ref('inventario/revisiones').push({
+        fecha: fechaOperativa(), ts: Date.now(), usuario: APP.user.nombre,
+        cambios: 0, valorAjuste: 0, detalle: 'Revisión conforme, sin diferencias'
+      });
+      db.ref('inventario/movimientos').push({
+        tipo:'revision', detalle:'📋 Revisión física conforme: todo cuadró',
+        usuario: APP.user.nombre, ts: Date.now(), fecha: fechaOperativa()
+      });
+      log('revision', 'Conforme, sin diferencias');
+      toast('✅ Revisión registrada: todo cuadró');
+      APP.abrirAlmacen();
+    }
+    return;
+  }
+  /* mostrar las diferencias antes de ajustar: aquí saltan los movimientos raros */
+  var h = '';
+  var valorAjuste = 0;
+  difs.forEach(function(x){
+    var p = APP.prods[x.id];
+    var valor = x.dif*(p.costo||0);
+    valorAjuste += valor;
+    var col = x.dif < 0 ? 'var(--rojo)' : 'var(--ok)';
+    h += '<div class="tot-line"><span>'+escapa(p.nombre)+'<br><small style="color:var(--gris)">sistema '+fmtQty(x.sistema)+' → contado '+fmtQty(x.contado)+' '+escapa(p.unidad)+'</small></span>';
+    h += '<b style="color:'+col+'">'+(x.dif>0?'+':'')+fmtQty(x.dif)+' '+escapa(p.unidad)+(p.costo?'<br><small>'+((valor<0?'−':'+'))+fmtCOP(Math.abs(valor))+'</small>':'')+'</b></div>';
+  });
+  h += '<div class="tot-line big"><span>Impacto total del ajuste</span><b style="color:'+(valorAjuste<0?'var(--rojo)':'var(--ok)')+'">'+(valorAjuste<0?'−':'+')+fmtCOP(Math.abs(valorAjuste))+'</b></div>';
+  if(valorAjuste < -20000){
+    h += '<div class="nota" style="background:#FDECEA;border-color:#F5C6C0;color:#8B2A20">🚨 Hay faltantes por '+fmtCOP(Math.abs(valorAjuste))+'. Revisa el kardex de esos productos antes de ajustar: ahí se ve si falta registrar una salida, una merma o algo que no cuadra.</div>';
+  }
+  h += '<div class="flabel">Nota de la revisión (opcional)</div><input class="inp" id="rv-nota" type="text" placeholder="Ej: revisión semanal de los lunes">';
+  h += '<button class="btn verde" style="margin-top:14px" onclick="APP.aplicarRevision()">✅ Ajustar el sistema a lo contado</button>';
+  h += '<button class="btn sec" onclick="APP.cerrarModal()">← Volver a revisar</button>';
+  APP._difsRev = difs;
+  abrirModal('🔍 '+difs.length+' diferencia'+(difs.length===1?'':'s')+' encontrada'+(difs.length===1?'':'s'), h);
+};
+APP._aplicandoRev = false;
+APP.aplicarRevision = function(){
+  if(APP._aplicandoRev) return;
+  var difs = APP._difsRev||[];
+  if(!difs.length){ APP.cerrarModal(); return; }
+  APP._aplicandoRev = true;
+  var nota = ((document.getElementById('rv-nota')||{}).value||'').trim();
+  var upd = {};
+  var lineas = [];
+  var valorAjuste = 0;
+  difs.forEach(function(x){
+    var p = APP.prods[x.id];
+    upd['inventario/productos/'+x.id+'/almacen'] = x.contado;
+    valorAjuste += x.dif*(p.costo||0);
+    lineas.push(p.nombre+' '+(x.dif>0?'+':'')+fmtQty(x.dif)+' '+p.unidad);
+  });
+  db.ref().update(upd).then(function(){
+    var proms = [];
+    proms.push(db.ref('inventario/revisiones').push({
+      fecha: fechaOperativa(), ts: Date.now(), usuario: APP.user.nombre,
+      cambios: difs.length, valorAjuste: Math.round(valorAjuste),
+      detalle: lineas.join(' · ')+(nota?' · '+nota:'')
+    }));
+    proms.push(db.ref('inventario/movimientos').push({
+      tipo:'revision', prodIds: difs.map(function(x){ return x.id; }),
+      detalle:'📋 Revisión física: '+lineas.join(', ')+' · impacto '+(valorAjuste<0?'−':'+')+fmtCOP(Math.abs(valorAjuste))+(nota?' · '+nota:''),
+      usuario: APP.user.nombre, ts: Date.now(), fecha: fechaOperativa()
+    }));
+    return Promise.all(proms);
+  }).then(function(){
+    log('revision', difs.length+' ajustes · impacto '+fmtCOP(Math.round(valorAjuste)));
+    toast('✅ Inventario ajustado a lo contado');
+    APP._aplicandoRev = false;
+    APP.cerrarModal();
+    APP.abrirAlmacen();
+  }).catch(function(e){
+    APP._aplicandoRev = false;
+    toast('⚠️ No se ajustó: '+String(e && e.message || e).slice(0,50));
+  });
+};
+
+/* ── ⬇️ Planilla CSV del inventario completo ── */
+APP.descargarPlanilla = function(){
+  var filas = [['Producto','Categoría','Unidad','En cava','En línea','Total','Mínimo línea','Costo unitario','Precio de venta','Valor cava (costo)','Valor línea (costo)','Estado']];
+  var totCava = 0, totLinea = 0;
+  prodsOrdenados().forEach(function(id){
+    var p = APP.prods[id];
+    var vc = (p.almacen||0)*(p.costo||0);
+    var vl = (p.linea||0)*(p.costo||0);
+    totCava += vc; totLinea += vl;
+    var e = estadoProd(p);
+    var estado = e === 'r' ? 'AGOTADO en línea' : (e === 'a' ? 'Bajo mínimo' : 'OK');
+    filas.push([
+      p.nombre, p.categoria, p.unidad,
+      String(p.almacen||0).replace('.',','), String(p.linea||0).replace('.',','), String(Math.round(((p.almacen||0)+(p.linea||0))*100)/100).replace('.',','),
+      String(p.minimo||0).replace('.',','), p.costo||0, p.venta||0,
+      Math.round(vc), Math.round(vl), estado
+    ]);
+  });
+  filas.push([]);
+  filas.push(['TOTALES','','','','','','','','', Math.round(totCava), Math.round(totLinea), 'Valor total: '+Math.round(totCava+totLinea)]);
+  filas.push(['Generado', fechaOperativa()+' '+horaStr(Date.now()), 'por '+APP.user.nombre]);
+  var csv = '\uFEFF'+filas.map(function(f){
+    return f.map(function(c){
+      c = String(c===undefined?'':c);
+      return /[";\n]/.test(c) ? '"'+c.replace(/"/g,'""')+'"' : c;
+    }).join(';');
+  }).join('\n');
+  var blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'inventario-pescaderia-'+fechaOperativa()+'.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  log('planilla', 'Planilla de inventario descargada');
+  toast('⬇️ Planilla descargada · ábrela con Excel o Sheets');
+};
+
+/* ── 📜 Kardex: historial de un producto ── */
+APP.kardexProducto = function(id){
+  var p = APP.prods[id];
+  if(!p) return;
+  db.ref('inventario/movimientos').orderByKey().limitToLast(200).once('value').then(function(snap){
+    var movs = snap.val()||{};
+    var lista = [];
+    Object.keys(movs).forEach(function(k){
+      var m = movs[k];
+      var esDeEste = (m.prodId === id)
+        || (Array.isArray(m.prodIds) && m.prodIds.indexOf(id) >= 0)
+        || ((m.detalle||'').indexOf(p.nombre) >= 0);
+      if(esDeEste) lista.push(m);
+    });
+    lista.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+    lista = lista.slice(0, 40);
+    var IC = {compra:'🛒', merma:'📉', despacho:'📦', conteo:'✏️', restaurante:'🍽️', revision:'📋', req:'📄'};
+    var h = '';
+    h += '<div class="tot-line"><span>🐟 En cava ahora</span><b>'+fmtQty(p.almacen||0)+' '+escapa(p.unidad)+'</b></div>';
+    h += '<div class="tot-line"><span>🍳 En línea ahora</span><b>'+fmtQty(p.linea||0)+' '+escapa(p.unidad)+'</b></div>';
+    h += '<div class="tot-line"><span>💵 Costo · 🏷️ Venta</span><b>'+fmtCOP(p.costo||0)+' · '+fmtCOP(p.venta||0)+'</b></div>';
+    var hist = p.precios||[];
+    if(hist.length >= 2){
+      var pri = hist[0].c, ult = hist[hist.length-1].c;
+      var pct = pri > 0 ? Math.round((ult-pri)/pri*100) : 0;
+      h += '<div class="tot-line"><span>📈 Evolución del costo</span><b>'+fmtCOP(pri)+' → '+fmtCOP(ult)+' ('+(pct>0?'+':'')+pct+'%)</b></div>';
+    }
+    h += '<div class="lbl" style="margin-top:14px">Movimientos ('+lista.length+')</div>';
+    if(lista.length){
+      lista.forEach(function(m){
+        h += '<div style="padding:9px 2px;border-bottom:1px dashed var(--linea)">';
+        h += '<div style="font-size:12px;font-weight:700">'+(IC[m.tipo]||'•')+' '+escapa(m.detalle||'')+'</div>';
+        h += '<div style="font-size:10px;color:var(--gris);margin-top:2px">'+escapa(m.fecha||'')+' · '+horaStr(m.ts)+' · '+escapa(m.usuario||'')+'</div>';
+        h += '</div>';
+      });
+    } else {
+      h += '<div class="vacio">Sin movimientos registrados aún</div>';
+    }
+    h += '<button class="btn sec" style="margin-top:14px" onclick="APP.modalProducto(\''+id+'\')">✏️ Editar producto</button>';
+    h += '<button class="btn sec" onclick="APP.cerrarModal()">Cerrar</button>';
+    abrirModal('📜 '+escapa(p.nombre), h);
+  });
+};
+
+/* ═══════════ 🩺 SALUD DEL NEGOCIO ═══════════
+   Un solo chequeo: plata disponible + inventario + cuentas + últimos 30 días,
+   con semáforos de decisión y el patrimonio operativo total. */
+APP.abrirSalud = function(){
+  APP.goScreen('s-salud');
+  document.getElementById('sl-fecha').textContent = 'Chequeo al '+fechaLegible(fechaOperativa())+' · '+horaStr(Date.now());
+  var desde60 = fechaHace(60);
+  Promise.all([
+    db.ref('caja/turnos').orderByKey().startAt(desde60).once('value'),
+    db.ref('inventario/salidasRest').orderByChild('fecha').startAt(fechaHace(30)).once('value'),
+    db.ref('disponible/saldos').once('value'),
+    db.ref('historico/ventas').orderByKey().startAt(desde60).once('value')
+  ]).then(function(res){
+    var turnos = res[0].val()||{};
+    var salidas = res[1].val()||{};
+    APP.dispS = res[2].val()||APP.dispS||{};
+    APP._histSalud = res[3].val()||{};
+    renderSalud(turnos, salidas, fechaHace(30));
+  }).catch(function(e){
+    document.getElementById('sl-cont').innerHTML = '<div class="vacio">⚠️ No se pudo hacer el chequeo<br>'+escapa(String(e && e.message || e).slice(0,60))+'</div>';
+  });
+};
+function renderSalud(turnos, salidas, desde){
+  var s = APP.dispS||{};
+  /* 1) plata disponible */
+  var dispTotal = 0;
+  var dispFilas = [];
+  Object.keys(METS_DISP).forEach(function(k){
+    var v = s[k]||0;
+    if(!v && k === 'otros') return;
+    dispTotal += aCOP(k, v);
+    dispFilas.push({k:k, v:v});
+  });
+  /* 2) inventario */
+  var invCosto = 0, invVenta = 0, agotados = 0, bajos = 0;
+  prodsOrdenados().forEach(function(id){
+    var p = APP.prods[id];
+    var tot = (p.almacen||0)+(p.linea||0);
+    invCosto += tot*(p.costo||0);
+    invVenta += tot*(p.venta||p.costo||0);
+    var e = estadoProd(p);
+    if(e === 'r') agotados++; else if(e === 'a') bajos++;
+  });
+  /* 3) cuentas */
+  var deben = 0, debemos = 0, vencidasCob = 0, vencidasPag = 0;
+  Object.keys(APP.ctas||{}).forEach(function(id){
+    var c = APP.ctas[id];
+    if(c.estado === 'pagada') return;
+    var b = badgeCta(c);
+    if((c.tipo||'cobrar') === 'cobrar'){ deben += saldoCta(c); if(b.cls==='venc') vencidasCob++; }
+    else { debemos += saldoCta(c); if(b.cls==='venc') vencidasPag++; }
+  });
+  /* 4) ventanas comparativas: día a día de los últimos 60 (cierres + histórico) */
+  var porDia = {}, egrDia = {}, nCierres = 0;
+  Object.keys(turnos).forEach(function(k){
+    var d = turnos[k];
+    if(!d || d.estado !== 'cerrada' || !d.cierre) return;
+    var f = d.fecha||'';
+    porDia[f] = (porDia[f]||0)+(d.cierre.ventaTurno||0);
+    egrDia[f] = (egrDia[f]||0)+(d.cierre.egresos||0);
+    if(f >= desde) nCierres++;
+  });
+  Object.keys(APP._histSalud||{}).forEach(function(f){
+    if(porDia[f] !== undefined) return; /* los cierres propios mandan */
+    var v = APP._histSalud[f]||{};
+    if(v.venta > 0 || v.gastos > 0){ porDia[f] = v.venta||0; egrDia[f] = v.gastos||0; }
+  });
+  function sumaEntre(mapa, d1, d2){ /* d1 inclusive, d2 exclusive; d2 null = hoy */
+    var t = 0;
+    Object.keys(mapa).forEach(function(f){
+      if(f >= d1 && (!d2 || f < d2)) t += mapa[f];
+    });
+    return t;
+  }
+  var f7 = fechaHace(7), f14 = fechaHace(14), f30 = desde, f60 = fechaHace(60);
+  var venta7 = sumaEntre(porDia, f7, null), ventaPrev7 = sumaEntre(porDia, f14, f7);
+  var venta30 = sumaEntre(porDia, f30, null), ventaPrev30 = sumaEntre(porDia, f60, f30);
+  var egr7 = sumaEntre(egrDia, f7, null), egrPrev7 = sumaEntre(egrDia, f14, f7);
+  var egr30 = sumaEntre(egrDia, f30, null), egrPrev30 = sumaEntre(egrDia, f60, f30);
+  var dias30 = {};
+  Object.keys(porDia).forEach(function(f){ if(f >= f30) dias30[f] = porDia[f]; });
+  var nDias = Object.keys(dias30).length;
+  var promedio = nDias ? Math.round(venta30/nDias) : 0;
+  /* promedio por día de la semana (para saber cuál rinde y cuál flojea) */
+  var DIAS_SEM = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  var porSem = {};
+  Object.keys(dias30).forEach(function(f){
+    var dw = new Date(f+'T12:00:00').getDay();
+    if(!porSem[dw]) porSem[dw] = {t:0, n:0};
+    porSem[dw].t += dias30[f]; porSem[dw].n++;
+  });
+  var mejorDia = null, peorDia = null;
+  Object.keys(porSem).forEach(function(dw){
+    var prom = porSem[dw].t/porSem[dw].n;
+    if(!mejorDia || prom > mejorDia.p) mejorDia = {d:DIAS_SEM[dw], p:prom};
+    if(!peorDia || prom < peorDia.p) peorDia = {d:DIAS_SEM[dw], p:prom};
+  });
+  function pctCambio(ahora, antes){
+    if(antes <= 0) return null;
+    return Math.round((ahora-antes)/antes*100);
+  }
+  /* 5) al restaurante 30 días */
+  var rest30c = 0, rest30v = 0;
+  Object.keys(salidas).forEach(function(k){
+    var x = salidas[k];
+    if(!x || (x.fecha||'') < desde) return;
+    rest30c += (x.totalCosto||0);
+    rest30v += (x.totalVenta||0);
+  });
+  /* 6) patrimonio operativo */
+  var patrimonio = dispTotal + invCosto + deben - debemos;
+
+  var h = '';
+  /* ═ tarjeta principal ═ */
+  h += '<div class="card" style="border-color:var(--coral);background:linear-gradient(180deg,#EAF7F6,#fff)">';
+  h += '<div class="lbl">💎 Patrimonio operativo hoy</div>';
+  h += '<div style="font-size:26px;font-weight:800;color:var(--mar)">'+fmtCOP(patrimonio)+'</div>';
+  h += '<div style="font-size:11px;color:var(--gris);margin-top:4px">Disponible + inventario a costo + lo que te deben − lo que debes</div>';
+  h += '<div style="margin-top:10px">';
+  h += '<div class="tot-line"><span>💼 Plata disponible</span><b>'+fmtCOP(dispTotal)+'</b></div>';
+  h += '<div class="tot-line"><span>📦 Mercancía (a costo)</span><b>'+fmtCOP(invCosto)+'</b></div>';
+  h += '<div class="tot-line"><span>🧾 Te deben</span><b style="color:var(--ok)">+'+fmtCOP(deben)+'</b></div>';
+  h += '<div class="tot-line"><span>📤 Debes</span><b style="color:var(--rojo)">−'+fmtCOP(debemos)+'</b></div>';
+  h += '</div></div>';
+
+  function semaforo(icono, tx, nivel){
+    var col = nivel === 'ok' ? 'var(--ok)' : (nivel === 'warn' ? '#B45309' : 'var(--rojo)');
+    var bg = nivel === 'ok' ? '#E7F5EC' : (nivel === 'warn' ? '#FFF3DC' : '#FDECEA');
+    return '<div style="display:flex;gap:10px;align-items:flex-start;background:'+bg+';border-radius:12px;padding:10px 12px;margin-bottom:8px"><span style="font-size:16px">'+icono+'</span><span style="font-size:12px;font-weight:700;color:'+col+';line-height:1.45">'+tx+'</span></div>';
+  }
+  /* ═ 🧠 tendencias: cómo vamos, en palabras ═ */
+  h += '<div class="card"><div class="lbl">🧠 ¿Cómo vamos? (tendencias)</div>';
+  var chS = pctCambio(venta7, ventaPrev7);
+  if(chS !== null && ventaPrev7 > 100000){
+    if(chS >= 8) h += semaforo('📈','VENTAS SUBIENDO: esta semana vendiste '+fmtCOP(venta7)+', un <b>+'+chS+'%</b> más que la anterior ('+fmtCOP(ventaPrev7)+'). ¡Lo que estén haciendo, síganlo haciendo!', 'ok');
+    else if(chS <= -8) h += semaforo('📉','VENTAS BAJANDO: esta semana '+fmtCOP(venta7)+' vs '+fmtCOP(ventaPrev7)+' la anterior (<b>'+chS+'%</b>). Revisa: ¿faltó producto, subieron precios, día flojo?', 'bad');
+    else h += semaforo('➡️','Ventas estables esta semana: '+fmtCOP(venta7)+' ('+(chS>=0?'+':'')+chS+'% vs la anterior)', 'ok');
+  }
+  var chM = pctCambio(venta30, ventaPrev30);
+  if(chM !== null && ventaPrev30 > 500000){
+    if(chM >= 5) h += semaforo('🚀','El mes va MEJOR que el anterior: '+fmtCOP(venta30)+' vs '+fmtCOP(ventaPrev30)+' (<b>+'+chM+'%</b>)', 'ok');
+    else if(chM <= -5) h += semaforo('🔻','El mes va POR DEBAJO del anterior: '+fmtCOP(venta30)+' vs '+fmtCOP(ventaPrev30)+' (<b>'+chM+'%</b>). Mira en Informes qué días y métodos cayeron', 'warn');
+  }
+  var chE = pctCambio(egr7, egrPrev7);
+  if(chE !== null && egrPrev7 > 50000 && chE >= 25){
+    h += semaforo('💸','GASTOS DISPARADOS: esta semana '+fmtCOP(egr7)+' en egresos, <b>+'+chE+'%</b> vs la anterior ('+fmtCOP(egrPrev7)+'). Revisa el top de categorías en Informes', 'bad');
+  } else if(chE !== null && egrPrev7 > 50000 && chE <= -15){
+    h += semaforo('👏','Gastos controlados: '+chE+'% menos que la semana pasada', 'ok');
+  }
+  if(mejorDia && peorDia && mejorDia.d !== peorDia.d && peorDia.p > 0){
+    var ratio = Math.round(mejorDia.p/peorDia.p*10)/10;
+    h += semaforo('📅','Tu mejor día es el <b>'+mejorDia.d+'</b> (promedio '+fmtCOP(Math.round(mejorDia.p))+') y el más flojo el <b>'+peorDia.d+'</b> ('+fmtCOP(Math.round(peorDia.p))+')'+(ratio>=1.8?' — vende '+ratio+'x más. ¿Promoción para levantar el '+peorDia.d+'?':''), ratio>=2.5?'warn':'ok');
+  }
+  if(chS === null && chM === null){
+    h += semaforo('🌱','Aún no hay suficientes días registrados para comparar tendencias — con dos semanas de cierres este análisis se enciende solo', 'ok');
+  }
+  h += '</div>';
+
+  /* ═ semáforos de decisión ═ */
+  h += '<div class="card"><div class="lbl">🚦 Para decidir hoy</div>';
+  if(debemos > 0){
+    var cobertura = Math.round(dispTotal/debemos*100);
+    if(cobertura >= 100) h += semaforo('✅','Con lo disponible ('+fmtCOP(dispTotal)+') cubres TODO lo que debes y te sobran '+fmtCOP(dispTotal-debemos), 'ok');
+    else if(cobertura >= 60) h += semaforo('⚠️','Lo disponible cubre el '+cobertura+'% de tus deudas. Prioriza cobrar lo que te deben ('+fmtCOP(deben)+')', 'warn');
+    else h += semaforo('🚨','Lo disponible solo cubre el '+cobertura+'% de lo que debes. Cuidado con comprometerte a más pagos', 'bad');
+  } else {
+    h += semaforo('✅','No tienes deudas pendientes con proveedores', 'ok');
+  }
+  if(vencidasPag) h += semaforo('🚨', vencidasPag+' factura'+(vencidasPag>1?'s':'')+' por pagar VENCIDA'+(vencidasPag>1?'S':'')+' — revisa Cuentas para no dañar el crédito con proveedores', 'bad');
+  if(vencidasCob) h += semaforo('⚠️', vencidasCob+' cliente'+(vencidasCob>1?'s':'')+' con deuda vencida — mándales el estado de cuenta por WhatsApp', 'warn');
+  if(agotados) h += semaforo('🚨', agotados+' producto'+(agotados>1?'s':'')+' AGOTADO'+(agotados>1?'S':'')+' en línea — ventas que se pierden hoy mismo', 'bad');
+  else if(bajos) h += semaforo('⚠️', bajos+' producto'+(bajos>1?'s':'')+' bajo mínimo — genera la requisición antes del servicio', 'warn');
+  else h += semaforo('✅','La línea está completa para trabajar', 'ok');
+  if(nDias >= 5){
+    var margen = venta30 > 0 ? Math.round((venta30-egr30)/venta30*100) : 0;
+    if(margen >= 30) h += semaforo('✅','De cada $100 vendidos en 30 días, te quedan $'+margen+' después de egresos de caja', 'ok');
+    else if(margen >= 10) h += semaforo('⚠️','Los egresos se comen el '+(100-margen)+'% de la venta — revisa el top de categorías en Informes', 'warn');
+    else h += semaforo('🚨','Los egresos casi igualan la venta ('+(100-margen)+'%). Urge revisar gastos en Informes', 'bad');
+  }
+  h += '</div>';
+
+  /* ═ disponible por método ═ */
+  h += '<div class="card"><div class="lbl">💼 Dónde está la plata</div>';
+  h += barras(dispFilas.map(function(x){
+    return {tx: METS_DISP[x.k].tx, val: Math.max(0, aCOP(x.k, x.v))};
+  }).sort(function(a,b){ return b.val-a.val; }), 'var(--noche)');
+  var negativos = dispFilas.filter(function(x){ return x.v < 0; });
+  negativos.forEach(function(x){
+    h += '<div style="font-size:11px;font-weight:700;color:var(--rojo)">⚠️ '+METS_DISP[x.k].tx+' está en negativo: '+fmtMon(x.k, x.v)+'</div>';
+  });
+  h += '</div>';
+
+  /* ═ inventario ═ */
+  h += '<div class="card"><div class="lbl">📦 La mercancía</div>';
+  h += '<div class="tot-line"><span>Valor a costo (lo invertido)</span><b>'+fmtCOP(invCosto)+'</b></div>';
+  h += '<div class="tot-line"><span>Si se vendiera todo</span><b style="color:var(--ok)">'+fmtCOP(invVenta)+'</b></div>';
+  h += '<div class="tot-line big"><span>Ganancia potencial en la cava</span><b style="color:var(--coral)">'+fmtCOP(invVenta-invCosto)+'</b></div>';
+  h += '</div>';
+
+  /* ═ últimos 30 días ═ */
+  h += '<div class="card"><div class="lbl">📈 Últimos 30 días</div>';
+  h += '<div class="tot-line"><span>Venta total ('+nCierres+' cierres)</span><b style="color:var(--ok)">'+fmtCOP(venta30)+'</b></div>';
+  h += '<div class="tot-line"><span>Promedio por día</span><b>'+fmtCOP(promedio)+'</b></div>';
+  h += '<div class="tot-line"><span>Egresos de caja</span><b style="color:var(--rojo)">'+fmtCOP(egr30)+'</b></div>';
+  if(rest30c){ h += '<div class="tot-line"><span>🍽️ Al restaurante (a costo)</span><b>'+fmtCOP(rest30c)+(rest30v?' <small style="color:var(--gris)">· ref '+fmtCOP(rest30v)+'</small>':'')+'</b></div>'; }
+  h += '<div style="font-size:10px;color:var(--gris);margin-top:6px">El detalle con gráficos por día, método y categoría está en 📊 Informes.</div>';
+  h += '</div>';
+
+  APP._salud = {patrimonio:patrimonio, disp:dispTotal, inv:invCosto, invVenta:invVenta, deben:deben, debemos:debemos,
+                venta30:venta30, egr30:egr30, promedio:promedio, agotados:agotados, bajos:bajos,
+                vencidasCob:vencidasCob, vencidasPag:vencidasPag, rest30c:rest30c,
+                venta7:venta7, chS:chS, chM:chM, chE:chE,
+                mejorDia:mejorDia, peorDia:peorDia};
+  document.getElementById('sl-cont').innerHTML = h;
+}
+APP.compartirSalud = function(){
+  var d = APP._salud;
+  if(!d){ toast('Espera a que cargue el chequeo'); return; }
+  var t = [];
+  t.push('🩺 *PESCADERÍA COLONCITO · Salud del negocio*');
+  t.push('📅 '+fechaLegible(fechaOperativa()));
+  t.push('────────────────');
+  t.push('💎 *Patrimonio operativo: '+fmtCOP(d.patrimonio)+'*');
+  t.push('💼 Disponible: '+fmtCOP(d.disp));
+  t.push('📦 Mercancía a costo: '+fmtCOP(d.inv)+' (vendida valdría '+fmtCOP(d.invVenta)+')');
+  t.push('🧾 Nos deben: '+fmtCOP(d.deben)+(d.vencidasCob?' ('+d.vencidasCob+' vencidas ⚠️)':''));
+  t.push('📤 Debemos: '+fmtCOP(d.debemos)+(d.vencidasPag?' ('+d.vencidasPag+' vencidas 🚨)':''));
+  t.push('────────────────');
+  t.push('📈 Últimos 30 días: venta '+fmtCOP(d.venta30)+' · egresos '+fmtCOP(d.egr30)+' · promedio/día '+fmtCOP(d.promedio));
+  if(d.chS !== null && d.chS !== undefined) t.push((d.chS>=0?'📈':'📉')+' Semana: '+fmtCOP(d.venta7)+' ('+(d.chS>=0?'+':'')+d.chS+'% vs anterior)');
+  if(d.chM !== null && d.chM !== undefined) t.push('🗓️ Mes vs anterior: '+(d.chM>=0?'+':'')+d.chM+'%');
+  if(d.mejorDia && d.peorDia && d.mejorDia.d !== d.peorDia.d) t.push('📅 Mejor día: '+d.mejorDia.d+' · más flojo: '+d.peorDia.d);
+  if(d.rest30c) t.push('🍽️ Al restaurante: '+fmtCOP(d.rest30c)+' (a costo)');
+  if(d.agotados) t.push('🚨 '+d.agotados+' productos agotados en línea');
+  compartirTexto(t.join('\n'));
 };
 
 init();
