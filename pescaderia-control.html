@@ -619,6 +619,7 @@ select.inp{appearance:none;-webkit-appearance:none}
   </div>
   <div class="wrap">
     <button class="btn" style="background:var(--mar);box-shadow:none;margin-bottom:12px" onclick="APP.abrirSalud()">🩺 Salud del negocio · análisis completo</button>
+    <button class="btn" style="background:var(--noche,#3B5BA5);box-shadow:none;margin-bottom:12px" onclick="APP.cierreMes()">📄 Cierre de Mes para socios</button>
     <div class="cats" id="inf-periodos"></div>
     <div id="inf-cont"><div class="cargando">Cargando datos…</div></div>
   </div>
@@ -660,6 +661,8 @@ select.inp{appearance:none;-webkit-appearance:none}
     <div class="cats" id="ct-filtros"></div>
     <div id="ct-lista"></div>
     <button class="btn" id="btn-nueva-cta" onclick="APP.modalCuenta(null)">＋ Nueva cuenta</button>
+    <button class="btn sec" onclick="APP.resumenCtasMes()">📊 Resumen de facturas del mes</button>
+    <button class="btn sec" onclick="APP.verProveedores()">🏭 Ver deuda por proveedor</button>
   </div>
 </div>
 
@@ -677,6 +680,9 @@ select.inp{appearance:none;-webkit-appearance:none}
   <div class="wrap">
     <div class="card"><div class="lbl">Saldos por método</div><div id="dp-saldos"></div></div>
     <button class="btn" onclick="APP.modalMovManual()">± Movimiento manual</button>
+    <button class="btn" style="margin-top:8px;background:var(--noche,#3B5BA5);box-shadow:0 4px 14px rgba(59,91,165,.25)" onclick="APP.auditarDisponible()">🩺 Auditar saldos · buscar dinero fantasma</button>
+    <button class="btn" style="margin-top:8px;background:var(--mar,#0E3B33);box-shadow:0 4px 14px rgba(14,59,51,.25)" onclick="APP.reconstruirDisponible()">♻️ Reconstruir saldos desde cero</button>
+    <button class="btn" style="margin-top:8px;background:var(--ok);box-shadow:0 4px 14px rgba(30,125,78,.25)" onclick="APP.ajustarSaldoReal()">✅ Ajustar a saldo real · contar y cuadrar</button>
     <div class="card" style="margin-top:12px"><div class="lbl">Historial de movimientos</div><div id="dp-movs"><div class="cargando">Cargando…</div></div></div>
     <button class="btn sec" onclick="APP.abrirCuentas()">← Volver a cuentas</button>
   </div>
@@ -1089,6 +1095,9 @@ function init(){
   db.ref('cuentas').on('value', function(snap){
     APP.ctas = snap.val()||{};
     if(APP._pantalla === 's-cuentas') renderCuentas();
+  });
+  db.ref('proveedores').on('value', function(snap){
+    APP.provs = snap.val()||{};
   });
   db.ref('disponible/saldos').on('value', function(snap){
     APP.dispS = snap.val()||{};
@@ -1545,6 +1554,15 @@ function llenarCategorias(selectId, tipo, seleccionada){
   lista.forEach(function(c){ h += '<option'+(c===seleccionada?' selected':'')+'>'+escapa(c)+'</option>'; });
   sel.innerHTML = h || '<option>💸 Otros</option>';
 }
+APP._tipoGastoFac = 'compras';
+APP.pickTipoGastoFac = function(id){
+  APP._tipoGastoFac = id;
+  TIPOS_GASTO.forEach(function(t){
+    var b = document.getElementById('ctg-'+t.id);
+    if(b) b.classList.toggle('sel', t.id === id);
+  });
+  llenarCategorias('ct-cat', id, null);
+};
 APP.pickTipoGasto = function(id){
   APP._tipoGastoSel = id;
   TIPOS_GASTO.forEach(function(t){
@@ -2543,16 +2561,28 @@ APP.reabrirTurno = function(i){
   if(!d || !d.cierre) return;
   var clave = d.fecha+'_'+d.turno;
   var tN = d.turno === 'man' ? '☀️ Mañana' : '🌙 Noche';
-  if(!confirm('¿Reabrir el turno '+tN+' del '+d.fecha+'?\n\n• La cajera podrá volver a registrar ingresos y egresos\n• Habrá que hacerle el cierre otra vez\n• El Disponible NO se revierte solo: si hace falta, ajústalo con un movimiento manual\n\nEl cierre actual queda guardado como respaldo.')) return;
+  if(!confirm('¿Reabrir el turno '+tN+' del '+d.fecha+'?\n\n• La cajera podrá volver a registrar ingresos y egresos\n• Habrá que hacerle el cierre otra vez\n• El Disponible se revierte AUTOMÁTICAMENTE: se resta lo que este cierre sumó, para no contar doble al cerrar de nuevo\n\nEl cierre actual queda guardado como respaldo.')) return;
+  var ci = d.cierre, cn = ci.conteo||{}, ap = d.apertura||{};
+  var deltasRev = {
+    efcop: -((cn.ef_cop||0) - (ap.fondoCOP||0)),
+    efusd: -((cn.ef_usd||0) - (ap.fondoUSD||0)),
+    efves: -(cn.ef_ves||0),
+    bancol: -((cn.bancol||0)+(cn.nequi||0)),
+    zelle: -(cn.zelle||0),
+    bs: -(cn.bs||0),
+    otros: -(cn.otros||0)
+  };
   var upd = {};
   upd['caja/turnos/'+clave+'/estado'] = 'abierta';
   upd['caja/turnos/'+clave+'/cierre'] = null;
   upd['caja/turnos/'+clave+'/reabierto'] = {
-    por: APP.user.nombre, ts: Date.now(), cierrePrevio: d.cierre
+    por: APP.user.nombre, ts: Date.now(), cierrePrevio: d.cierre, disponibleRevertido: true
   };
   db.ref().update(upd).then(function(){
-    log('turno-reabierto', clave+' · por '+APP.user.nombre+' · tenía venta '+fmtCOP(d.cierre.ventaTurno||0));
-    toast('🔓 Turno reabierto · ya se puede editar');
+    return moverDisponible(deltasRev, 'ajuste', '🔓 Reapertura del turno '+clave+': se revierte el cierre anterior');
+  }).then(function(){
+    log('turno-reabierto', clave+' · por '+APP.user.nombre+' · tenía venta '+fmtCOP(d.cierre.ventaTurno||0)+' · Disponible revertido');
+    toast('🔓 Turno reabierto · Disponible revertido');
     APP.cerrarModal();
     APP.abrirHistorial();
   }).catch(function(e){ toast('⚠️ No se pudo reabrir: '+String(e && e.message || e).slice(0,50)); });
@@ -3693,6 +3723,7 @@ var METS_DISP = {
   otros:{tx:'🏛️ Otros', mon:'COP'}
 };
 APP.ctas = {};
+APP.provs = {};
 APP.dispS = {};
 APP._ctaTab = 'cobrar';
 APP._ctaFiltro = 'pend';
@@ -3717,15 +3748,14 @@ function moverDisponible(deltas, tipo, detalle){
   var limpio = {};
   Object.keys(deltas).forEach(function(k){ if(deltas[k]) limpio[k] = Math.round(deltas[k]*100)/100; });
   if(!Object.keys(limpio).length) return Promise.resolve();
-  return db.ref('disponible/saldos').once('value').then(function(snap){
-    var v = snap.val()||{};
+  return db.ref('disponible/saldos').transaction(function(v){
+    v = v||{};
     Object.keys(limpio).forEach(function(k){ v[k] = Math.round(((v[k]||0)+limpio[k])*100)/100; });
-    var upd = {};
-    upd['disponible/saldos'] = v;
-    upd['disponible/movs/'+db.ref('disponible/movs').push().key] = {
+    return v;
+  }).then(function(){
+    return db.ref('disponible/movs').push({
       tipo:tipo, detalle:detalle, deltas:limpio, ts:Date.now(), fecha:fechaOperativa(), usuario:APP.user.nombre
-    };
-    return db.ref().update(upd);
+    });
   });
 }
 
@@ -3849,6 +3879,16 @@ APP.modalCuenta = function(id){
   h += '<div class="flabel">'+(esCob?'Cliente que nos debe':'Proveedor al que debemos')+'</div><input class="inp" id="ct-nombre" type="text" value="'+escapa(c.nombre)+'" placeholder="'+(esCob?'Ej: Alcaldía La Fría':'Ej: Distribuidora Kola Fría')+'">';
   h += '<div class="flabel">Descripción (opcional)</div><input class="inp" id="ct-desc" type="text" value="'+escapa(c.descripcion||'')+'" placeholder="Ej: refrescos semana 07/07">';
   if(!esCob){
+    /* proveedor: agrupar facturas del mismo proveedor */
+    h += '<div class="flabel">🏭 Proveedor</div>' + selectProveedores('ct-prov', c.provId||'');
+    /* tipo de gasto + categoría: para que al pagar caiga bien en los informes */
+    var tgFac = normTipo(c.tipoGasto || 'compras');
+    h += '<div class="flabel">Tipo de gasto</div><div class="metodos" id="ct-tg-sel">';
+    TIPOS_GASTO.forEach(function(t){
+      h += '<button type="button" class="'+(t.id===tgFac?'sel':'')+'" id="ctg-'+t.id+'" onclick="APP.pickTipoGastoFac(\''+t.id+'\')">'+t.tx+'</button>';
+    });
+    h += '</div>';
+    h += '<div class="flabel">Categoría</div><select class="inp" id="ct-cat"></select>';
     /* facturas de proveedores venezolanos: vienen en Bs con su equivalente en USD */
     h += '<div class="lbl" style="margin-top:14px">Datos de la factura</div>';
     h += '<div class="flabel">Monto en bolívares (Bs)</div><input class="inp" id="ct-bs" type="number" inputmode="decimal" min="0" step="0.01" value="'+(c.montoBs||'')+'" placeholder="176679.89" oninput="APP.calcAncla()">';
@@ -3870,7 +3910,7 @@ APP.modalCuenta = function(id){
   }
   h += '<button class="btn sec" onclick="APP.cerrarModal()">Cancelar</button>';
   abrirModal(id ? '✏️ Editar cuenta' : (esCob?'🧾 Nueva cuenta por cobrar':'📤 Nueva cuenta por pagar'), h);
-  if(!esCob) APP.calcAncla();
+  if(!esCob){ APP.calcAncla(); var _tg = normTipo(c.tipoGasto||'compras'); APP._tipoGastoFac = _tg; llenarCategorias('ct-cat', _tg, c.categoria||null); }
 };
 APP._tipoCtaEdit = null;
 APP.pickTipoCta = function(t){
@@ -3931,6 +3971,11 @@ APP.guardarCuenta = function(id){
     if(usd) data.montoUSD = usd;
     var lim = (document.getElementById('ct-limbs')||{}).value||'';
     if(lim) data.limiteBs = lim;
+    var pv = (document.getElementById('ct-prov')||{}).value||'';
+    if(pv) data.provId = pv; else if(prev && prev.provId) data.provId = null;
+    data.tipoGasto = APP._tipoGastoFac || 'compras';
+    var catF = (document.getElementById('ct-cat')||{}).value||'';
+    if(catF) data.categoria = catF;
   }
   /* si editan el monto, recalcular estado */
   data.estado = (data.abonado >= data.monto) ? 'pagada' : 'pendiente';
@@ -4254,7 +4299,7 @@ function renderDisponible(){
     if(k === 'otros' && !v) return;
     total += aCOP(k, v);
     var neg = v < 0;
-    h += '<div class="disp-card"><div class="tx"><b>'+METS_DISP[k].tx+'</b>';
+    h += '<div class="disp-card" style="cursor:pointer" onclick="APP.verHistMetodo(\''+k+'\')"><div class="tx"><b>'+METS_DISP[k].tx+'</b> <span style="font-size:10px;color:var(--gris)">ver historial ›</span>';
     if(monDe(k) !== 'COP') h += '<span>≈ '+fmtCOP(aCOP(k, v))+' COP</span>';
     h += '</div><div class="val" style="color:'+(neg?'var(--rojo)':'var(--tinta)')+'">'+fmtMon(k, v)+(neg?'<small>⚠️ negativo</small>':'')+'</div></div>';
   });
@@ -5198,6 +5243,1062 @@ APP.borrarVentaPesc = function(k){
       cargarVentasHoy();
     });
   });
+};
+
+
+/* ═══════════ HISTORIAL POR MÉTODO + AUDITORÍA ═══════════ */
+function escapaAttr(s){ return String(s).replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
+function chartLineaSVG(vals){
+  if(!vals || vals.length < 2) return '';
+  var w = 300, hh = 90;
+  var min = Math.min.apply(null, vals.concat([0]));
+  var max = Math.max.apply(null, vals.concat([0]));
+  if(max === min) max = min + 1;
+  var pts = vals.map(function(v,i){
+    var x = i/(vals.length-1)*w;
+    var y = hh - ((v-min)/(max-min))*hh;
+    return Math.round(x*10)/10 + ',' + Math.round(y*10)/10;
+  }).join(' ');
+  var y0 = hh - ((0-min)/(max-min))*hh;
+  return '<svg viewBox="0 0 '+w+' '+(hh+6)+'" style="width:100%;height:auto;margin-top:8px;background:#FBF9F4;border-radius:10px">'+
+    '<line x1="0" y1="'+y0+'" x2="'+w+'" y2="'+y0+'" stroke="#E8E1D5" stroke-width="1"/>'+
+    '<polyline points="'+pts+'" fill="none" stroke="#FF6B4A" stroke-width="2" stroke-linejoin="round"/></svg>';
+}
+APP.verHistMetodo = function(k){
+  var met = METS_DISP[k];
+  if(!met) return;
+  abrirModal(met.tx, '<div class="cargando">Cargando todos los movimientos…</div>');
+  db.ref('disponible/movs').once('value').then(function(snap){
+    var movs = snap.val()||{};
+    var rows = [];
+    Object.keys(movs).forEach(function(id){
+      var m = movs[id];
+      var d = (m && m.deltas || {})[k];
+      if(d) rows.push({ts:m.ts||0, fecha:m.fecha||'', tipo:m.tipo||'', detalle:m.detalle||'', delta:d});
+    });
+    rows.sort(function(a,b){ return a.ts - b.ts; });
+    var run = 0, absSum = 0;
+    rows.forEach(function(r){ run = Math.round((run + r.delta)*100)/100; r.run = run; absSum += Math.abs(r.delta); });
+    var prom = rows.length ? absSum/rows.length : 0;
+    var actual = (APP.dispS||{})[k]||0;
+    var dif = Math.round((actual - run)*100)/100;
+    var h = '';
+    h += '<div class="tot-line big"><span>Saldo actual</span><b>'+fmtMon(k, actual)+'</b></div>';
+    h += '<div class="tot-line"><span>Suma de sus '+rows.length+' movimientos</span><b>'+fmtMon(k, run)+'</b></div>';
+    if(Math.abs(dif) > 0.01){
+      h += '<div class="vacio" style="color:var(--rojo);padding:10px">⚠️ Hay <b>'+fmtMon(k, dif)+'</b> SIN respaldo en movimientos.<br>Usa 🩺 Auditar saldos.</div>';
+    }
+    h += chartLineaSVG(rows.map(function(r){ return r.run; }));
+    if(rows.length > 1) h += '<div style="font-size:10px;color:var(--gris);margin-top:2px">Evolución del saldo, del movimiento más viejo al más reciente</div>';
+    h += '<div class="lbl" style="margin-top:12px">Movimientos · más recientes primero</div>';
+    if(!rows.length) h += '<div class="vacio">Sin movimientos de este método</div>';
+    var IC = {cierre:'🔒', 'abono-cobrar':'🧾', 'abono-pagar':'📤', retiro:'➖', ingreso:'➕', traslado:'🔄', ajuste:'🛠️'};
+    rows.slice().reverse().forEach(function(r){
+      var sos = prom > 0 && Math.abs(r.delta) > prom*3;
+      h += '<div class="mov" style="cursor:default;'+(sos ? 'border-left:3px solid var(--rojo);padding-left:8px;' : '')+'"><div style="flex:1">';
+      h += '<b style="color:'+(r.delta < 0 ? 'var(--rojo)' : 'var(--ok)')+'">'+(r.delta > 0 ? '+' : '')+fmtMon(k, r.delta)+'</b>'+(sos ? ' ⚠️ monto atípico' : '')+'<br>';
+      h += '<span class="sub" style="font-size:11px">'+(IC[r.tipo]||'•')+' '+escapa(r.detalle)+'<br>'+escapa(r.fecha)+' · '+horaStr(r.ts)+' · quedó en <b>'+fmtMon(k, r.run)+'</b></span>';
+      h += '</div></div>';
+    });
+    h += '<button class="btn sec" onclick="APP.cerrarModal()">Cerrar</button>';
+    abrirModal(met.tx, h);
+  }).catch(function(e){
+    abrirModal(met.tx, '<div class="vacio">⚠️ '+escapa(String(e && e.message || e).slice(0,60))+'</div>');
+  });
+};
+
+APP._audDup = [];
+APP.auditarDisponible = function(){
+  abrirModal('🩺 Auditoría del Disponible', '<div class="cargando">Revisando todos los movimientos…</div>');
+  Promise.all([
+    db.ref('disponible/movs').once('value'),
+    db.ref('disponible/saldos').once('value'),
+    db.ref('caja/turnos').once('value')
+  ]).then(function(res){
+    var movs = res[0].val()||{}, saldos = res[1].val()||{}, turnos = res[2].val()||{};
+    var lista = Object.keys(movs).map(function(id){ return movs[id]; });
+    var recon = {};
+    lista.forEach(function(m){
+      Object.keys(m.deltas||{}).forEach(function(k){ recon[k] = Math.round(((recon[k]||0) + m.deltas[k])*100)/100; });
+    });
+    var h = '';
+    h += '<div class="lbl">1️⃣ ¿Los saldos cuadran con sus movimientos?</div>';
+    var okTodo = true;
+    Object.keys(METS_DISP).forEach(function(k){
+      var s = Math.round((saldos[k]||0)*100)/100, r = recon[k]||0, d = Math.round((s - r)*100)/100;
+      if(Math.abs(d) > 0.01){ okTodo = false; h += '<div class="tot-line"><span>'+METS_DISP[k].tx+'</span><b style="color:var(--rojo)">'+fmtMon(k, d)+' sin respaldo</b></div>'; }
+    });
+    if(okTodo) h += '<div class="vacio" style="color:var(--ok);padding:10px">✅ Todos los saldos están respaldados por movimientos.<br>Si hay dinero fantasma, está DENTRO de los movimientos → punto 2.</div>';
+    h += '<div class="lbl" style="margin-top:14px">2️⃣ Cierres contados más de una vez</div>';
+    var grupos = {};
+    lista.forEach(function(m){
+      if(m.tipo !== 'cierre') return;
+      var mm = /Cierre (\d{4}-\d{2}-\d{2})/.exec(m.detalle||'');
+      if(!mm) return;
+      var t = (m.detalle||'').indexOf('mañana') >= 0 ? 'man' : 'noc';
+      var clave = mm[1]+'_'+t;
+      (grupos[clave] = grupos[clave]||[]).push(m);
+    });
+    APP._audDup = [];
+    var hayDup = false;
+    Object.keys(grupos).sort().forEach(function(clave){
+      var g = grupos[clave];
+      if(g.length < 2) return;
+      hayDup = true;
+      g.sort(function(a,b){ return (a.ts||0) - (b.ts||0); });
+      var extras = g.slice(1);
+      var deltasRev = {}, totCOP = 0;
+      extras.forEach(function(m){
+        Object.keys(m.deltas||{}).forEach(function(k){
+          deltasRev[k] = Math.round(((deltasRev[k]||0) - m.deltas[k])*100)/100;
+          totCOP += aCOP(k, m.deltas[k]);
+        });
+      });
+      var idx = APP._audDup.length;
+      APP._audDup.push({clave: clave, deltas: deltasRev, tot: totCOP});
+      var reab = turnos[clave] && turnos[clave].reabierto;
+      var tTx = clave.indexOf('_man') >= 0 ? '☀️ mañana' : '🌙 noche';
+      h += '<div class="card" style="border-color:var(--rojo);margin-top:8px"><b>🚨 '+clave.slice(0,10)+' · '+tTx+'</b><br>';
+      h += '<span class="sub" style="font-size:12px">Este cierre se sumó <b>'+g.length+' veces</b> al Disponible.<br>Dinero fantasma: <b style="color:var(--rojo)">'+fmtCOP(Math.round(totCOP))+'</b>';
+      if(reab) h += '<br>🔓 El turno fue reabierto y cerrado de nuevo: esa fue la causa.';
+      h += '</span>';
+      if(APP.user.rol === 'admin') h += '<button class="btn" style="margin-top:8px;background:var(--rojo);box-shadow:none" onclick="APP.corregirDuplicado('+idx+')">🛠️ Revertir lo duplicado · '+fmtCOP(Math.round(totCOP))+'</button>';
+      h += '</div>';
+    });
+    if(!hayDup) h += '<div class="vacio" style="padding:10px">✅ Ningún cierre está duplicado.</div>';
+    h += '<div class="lbl" style="margin-top:14px">Cómo leer esto</div>';
+    h += '<div style="font-size:12px;color:var(--gris)">• Punto 1 en rojo: el saldo fue tocado sin dejar movimiento.<br>• Punto 2 en rojo: un turno reabierto se contó doble (ya quedó corregido hacia adelante: al reabrir, el Disponible ahora se revierte solo).<br>• Toca cualquier método para ver su historial completo con saldo movimiento a movimiento y su gráfica.</div>';
+    h += '<button class="btn sec" style="margin-top:12px" onclick="APP.cerrarModal()">Cerrar</button>';
+    abrirModal('🩺 Auditoría del Disponible', h);
+  }).catch(function(e){
+    abrirModal('🩺 Auditoría', '<div class="vacio">⚠️ '+escapa(String(e && e.message || e).slice(0,60))+'</div>');
+  });
+};
+APP.corregirDuplicado = function(idx){
+  var d = APP._audDup[idx];
+  if(!d) return;
+  if(APP.user.rol !== 'admin'){ toast('Solo el admin puede corregir'); return; }
+  if(!confirm('Se creará un ajuste que RESTA '+fmtCOP(Math.round(d.tot))+' del Disponible para revertir el cierre duplicado del '+d.clave.slice(0,10)+'.\n\nQueda registrado con tu nombre. ¿Continuar?')) return;
+  moverDisponible(d.deltas, 'ajuste', '🩺 Auditoría: se revierte cierre duplicado '+d.clave).then(function(){
+    log('auditoria', 'Revertido duplicado '+d.clave+' · '+fmtCOP(Math.round(d.tot)));
+    toast('✅ Corregido · el Disponible ya refleja la realidad');
+    APP.cerrarModal();
+    APP.auditarDisponible();
+  }).catch(function(e){ toast('⚠️ No se pudo: '+String(e && e.message || e).slice(0,50)); });
+};
+
+/* ═══════════ RECONSTRUIR EL DISPONIBLE DESDE CERO ═══════════ */
+APP._reconData = null;
+APP.reconstruirDisponible = function(){
+  if(APP.user.rol !== 'admin'){ toast('Solo el admin puede reconstruir los saldos'); return; }
+  abrirModal('♻️ Reconstruir saldos', '<div class="cargando">Recalculando desde todos los cierres y movimientos…</div>');
+  Promise.all([
+    db.ref('caja/turnos').once('value'),
+    db.ref('disponible/movs').once('value'),
+    db.ref('disponible/saldos').once('value')
+  ]).then(function(res){
+    var turnos = res[0].val()||{};
+    var movs = res[1].val()||{};
+    var saldos = res[2].val()||{};
+    var recon = {efcop:0, efusd:0, efves:0, bancol:0, zelle:0, bs:0, otros:0};
+    var det = {cierres:0, manuales:0, abonos:0, ignorados:0};
+    Object.keys(turnos).forEach(function(k){
+      var d = turnos[k];
+      if(!d || d.estado !== 'cerrada' || !d.cierre) return;
+      var cn = d.cierre.conteo||{}, ap = d.apertura||{};
+      recon.efcop  += (cn.ef_cop||0) - (ap.fondoCOP||0);
+      recon.efusd  += (cn.ef_usd||0) - (ap.fondoUSD||0);
+      recon.efves  += (cn.ef_ves||0);
+      recon.bancol += (cn.bancol||0)+(cn.nequi||0);
+      recon.zelle  += (cn.zelle||0);
+      recon.bs     += (cn.bs||0);
+      recon.otros  += (cn.otros||0);
+      det.cierres++;
+    });
+    Object.keys(movs).forEach(function(id){
+      var m = movs[id];
+      if(!m) return;
+      var t = m.tipo||'';
+      if(t === 'cierre'){ return; }
+      if(t === 'ajuste'){ det.ignorados++; return; }
+      Object.keys(m.deltas||{}).forEach(function(dk){
+        if(recon[dk] === undefined) recon[dk] = 0;
+        recon[dk] += m.deltas[dk];
+      });
+      if(t === 'abono-cobrar' || t === 'abono-pagar') det.abonos++; else det.manuales++;
+    });
+    Object.keys(recon).forEach(function(k){ recon[k] = Math.round(recon[k]*100)/100; });
+    var deltas = {};
+    Object.keys(METS_DISP).forEach(function(k){
+      var actual = Math.round((saldos[k]||0)*100)/100;
+      var d = Math.round((recon[k] - actual)*100)/100;
+      if(Math.abs(d) > 0.001) deltas[k] = d;
+    });
+    APP._reconData = {recon:recon, saldos:saldos, deltas:deltas, det:det};
+    renderReconModal();
+  }).catch(function(e){
+    abrirModal('♻️ Reconstruir', '<div class="vacio">⚠️ '+escapa(String(e && e.message || e).slice(0,60))+'</div>');
+  });
+};
+function renderReconModal(){
+  var R = APP._reconData; if(!R) return;
+  var h = '';
+  h += '<div class="sub" style="font-size:12px;color:var(--gris);margin-bottom:10px">Así quedaría cada método si se recalcula desde los '+R.det.cierres+' cierres + '+R.det.manuales+' movimientos manuales + '+R.det.abonos+' abonos. Se ignoran '+R.det.ignorados+' ajustes/reversiones (el enredo).</div>';
+  h += '<div class="lbl">Actual → Reconstruido</div>';
+  var hayCambio = false;
+  Object.keys(METS_DISP).forEach(function(k){
+    var actual = Math.round((R.saldos[k]||0)*100)/100;
+    var nuevo = R.recon[k]||0;
+    var d = Math.round((nuevo-actual)*100)/100;
+    if(k === 'otros' && !actual && !nuevo) return;
+    var col = Math.abs(d) < 0.01 ? 'var(--gris)' : (d>0 ? 'var(--ok)' : 'var(--rojo)');
+    if(Math.abs(d) >= 0.01) hayCambio = true;
+    h += '<div class="tot-line"><span>'+METS_DISP[k].tx+'</span><b style="color:'+col+'">'+fmtMon(k, nuevo)+'</b></div>';
+    h += '<div style="text-align:right;font-size:11px;color:var(--gris);margin:-4px 0 6px">antes '+fmtMon(k, actual)+(Math.abs(d)>=0.01?' · '+(d>0?'+':'')+fmtMon(k, d):' · sin cambio')+'</div>';
+  });
+  var totalRecon = 0;
+  Object.keys(R.recon).forEach(function(k){ totalRecon += aCOP(k, R.recon[k]); });
+  h += '<div class="tot-line big" style="margin-top:8px"><span>Total reconstruido (a COP)</span><b>'+fmtCOP(Math.round(totalRecon))+'</b></div>';
+  if(!hayCambio){
+    h += '<div class="vacio" style="color:var(--ok);padding:12px;margin-top:10px">✅ Los saldos ya coinciden con la reconstrucción. No hace falta corregir nada.</div>';
+    h += '<button class="btn sec" onclick="APP.cerrarModal()">Cerrar</button>';
+  } else {
+    h += '<div class="vacio" style="padding:10px;margin-top:10px;font-size:12px">Al aplicar, se crea UN solo ajuste que deja cada método en su valor reconstruido. Tu historial de cierres, abonos y movimientos NO se toca — solo se corrige el saldo. Queda registrado con tu nombre.</div>';
+    h += '<button class="btn" style="background:var(--mar,#0E3B33)" onclick="APP.aplicarReconstruccion()">♻️ Aplicar reconstrucción</button>';
+    h += '<button class="btn sec" onclick="APP.cerrarModal()">Cancelar · no cambiar nada</button>';
+  }
+  abrirModal('♻️ Reconstruir saldos', h);
+}
+APP.aplicarReconstruccion = function(){
+  var R = APP._reconData; if(!R) return;
+  if(APP.user.rol !== 'admin'){ toast('Solo el admin puede aplicar'); return; }
+  if(!Object.keys(R.deltas).length){ toast('No hay nada que corregir'); APP.cerrarModal(); return; }
+  if(!confirm('Se ajustarán los saldos a su valor reconstruido desde los cierres y movimientos legítimos.\n\nEsto deja todo como debe estar y borra el efecto de las reversiones. ¿Continuar?')) return;
+  moverDisponible(R.deltas, 'ajuste', '♻️ Reconstrucción total de saldos desde cierres y movimientos').then(function(){
+    log('reconstruccion', 'Saldos reconstruidos por '+APP.user.nombre);
+    toast('✅ Listo · los saldos quedaron reconstruidos');
+    APP.cerrarModal();
+    renderDisponible();
+    if(typeof cargarMovsDisp === 'function') cargarMovsDisp();
+  }).catch(function(e){ toast('⚠️ No se pudo: '+String(e && e.message || e).slice(0,50)); });
+};
+
+/* ═══════════ AJUSTAR A SALDO REAL ═══════════ */
+APP.ajustarSaldoReal = function(){
+  if(APP.user.rol !== 'admin'){ toast('Solo el admin puede ajustar los saldos'); return; }
+  var s = APP.dispS||{};
+  var h = '<div class="sub" style="font-size:12px;color:var(--gris);margin-bottom:10px">Escribe lo que hay REALMENTE en cada método (cuenta el efectivo, revisa el saldo del banco, etc.). Deja igual los que ya estén bien. La app calcula sola la diferencia.</div>';
+  Object.keys(METS_DISP).forEach(function(k){
+    var m = METS_DISP[k];
+    var actual = Math.round(((s[k]||0))*100)/100;
+    var suf = m.mon === 'USD' ? 'USD' : (m.mon === 'VES' ? 'Bs' : 'COP');
+    h += '<div class="flabel">'+m.tx+' <span style="color:var(--gris);font-weight:400">· app dice '+fmtMon(k, actual)+'</span></div>';
+    h += '<div style="display:flex;align-items:center;gap:8px">';
+    h += '<input class="inp" id="asr-'+k+'" type="number" inputmode="decimal" step="any" value="'+actual+'" style="flex:1">';
+    h += '<span style="font-size:12px;color:var(--gris);min-width:34px">'+suf+'</span></div>';
+  });
+  h += '<div class="flabel" style="margin-top:12px">Motivo / nota del ajuste</div>';
+  h += '<input class="inp" id="asr-nota" type="text" placeholder="Ej: Conteo real · dinero de otro negocio no registrado" value="Conteo real de saldos">';
+  h += '<button class="btn" style="margin-top:12px" onclick="APP.previewAjusteReal()">Ver diferencias antes de aplicar</button>';
+  h += '<button class="btn sec" onclick="APP.cerrarModal()">Cancelar</button>';
+  abrirModal('✅ Ajustar a saldo real', h);
+};
+APP._asrData = null;
+APP.previewAjusteReal = function(){
+  var s = APP.dispS||{};
+  var nota = ((document.getElementById('asr-nota')||{}).value||'').trim() || 'Conteo real de saldos';
+  var deltas = {}, filas = [], totCOPactual = 0, totCOPnuevo = 0;
+  Object.keys(METS_DISP).forEach(function(k){
+    var el = document.getElementById('asr-'+k);
+    if(!el) return;
+    var actual = Math.round(((s[k]||0))*100)/100;
+    var real = parseFloat(el.value);
+    if(isNaN(real)) real = actual;
+    real = Math.round(real*100)/100;
+    var d = Math.round((real-actual)*100)/100;
+    totCOPactual += aCOP(k, actual);
+    totCOPnuevo += aCOP(k, real);
+    if(Math.abs(d) > 0.001){ deltas[k] = d; filas.push({k:k, actual:actual, real:real, d:d}); }
+  });
+  APP._asrData = {deltas:deltas, nota:nota};
+  var h = '';
+  if(!filas.length){
+    h += '<div class="vacio" style="color:var(--ok);padding:12px">✅ No hay diferencias · los saldos ya coinciden con lo que contaste. Nada que ajustar.</div>';
+    h += '<button class="btn sec" onclick="APP.cerrarModal()">Cerrar</button>';
+    abrirModal('✅ Ajustar a saldo real', h);
+    return;
+  }
+  h += '<div class="lbl">Diferencias a aplicar</div>';
+  filas.forEach(function(f){
+    var col = f.d>0 ? 'var(--ok)' : 'var(--rojo)';
+    h += '<div class="tot-line"><span>'+METS_DISP[f.k].tx+'</span><b style="color:'+col+'">'+(f.d>0?'+':'')+fmtMon(f.k, f.d)+'</b></div>';
+    h += '<div style="text-align:right;font-size:11px;color:var(--gris);margin:-4px 0 6px">de '+fmtMon(f.k, f.actual)+' → '+fmtMon(f.k, f.real)+'</div>';
+  });
+  var difCOP = Math.round(totCOPnuevo - totCOPactual);
+  h += '<div class="tot-line big" style="margin-top:8px"><span>Total quedará en (a COP)</span><b>'+fmtCOP(Math.round(totCOPnuevo))+'</b></div>';
+  h += '<div class="tot-line"><span>Cambio total</span><b style="color:'+(difCOP>=0?'var(--ok)':'var(--rojo)')+'">'+(difCOP>=0?'+':'')+fmtCOP(difCOP)+'</b></div>';
+  h += '<div class="vacio" style="padding:10px;margin-top:10px;font-size:12px">Se registra UN ajuste con tu nota: "'+escapa(APP._asrData.nota)+'". Queda con tu nombre en el historial. El resto no se toca.</div>';
+  h += '<button class="btn" style="background:var(--ok)" onclick="APP.aplicarAjusteReal()">✅ Aplicar y cuadrar</button>';
+  h += '<button class="btn sec" onclick="APP.ajustarSaldoReal()">← Volver a editar</button>';
+  abrirModal('✅ Confirmar ajuste', h);
+};
+APP.aplicarAjusteReal = function(){
+  var D = APP._asrData; if(!D) return;
+  if(APP.user.rol !== 'admin'){ toast('Solo el admin puede aplicar'); return; }
+  if(!Object.keys(D.deltas).length){ toast('No hay diferencias'); APP.cerrarModal(); return; }
+  moverDisponible(D.deltas, 'ajuste', '✅ Ajuste a saldo real · '+D.nota).then(function(){
+    log('ajuste-real', D.nota+' · por '+APP.user.nombre);
+    toast('✅ Saldos cuadrados con la realidad');
+    APP.cerrarModal();
+    renderDisponible();
+    if(typeof cargarMovsDisp === 'function') cargarMovsDisp();
+  }).catch(function(e){ toast('⚠️ No se pudo: '+String(e && e.message || e).slice(0,50)); });
+};
+
+
+/* ═══ PROVEEDORES (portado) ═══ */
+function provsOrdenados(){
+  return Object.keys(APP.provs||{}).sort(function(a,b){
+    return (APP.provs[a].nombre||'').localeCompare(APP.provs[b].nombre||'', 'es');
+  });
+}
+
+/* Selector de proveedor con opción de crear uno nuevo al vuelo */
+function selectProveedores(id, seleccionado){
+  var h = '<select class="inp" id="'+id+'" onchange="APP.onSelProv(this)">';
+  h += '<option value="">\u2014 Sin proveedor \u2014</option>';
+  provsOrdenados().forEach(function(pid){
+    h += '<option value="'+pid+'"'+(pid===seleccionado?' selected':'')+'>'+escapa(APP.provs[pid].nombre)+'</option>';
+  });
+  h += '<option value="__nuevo__">\u2795 Agregar nuevo proveedor\u2026</option>';
+  return h+'</select>';
+}
+
+APP.onSelProv = function(sel){
+  if(sel.value !== '__nuevo__') return;
+  var nombre = (prompt('Nombre del nuevo proveedor:')||'').trim();
+  if(!nombre){ sel.value = ''; return; }
+  /* ¿ya existe uno con ese nombre? */
+  var existe = provsOrdenados().filter(function(pid){
+    return (APP.provs[pid].nombre||'').toLowerCase() === nombre.toLowerCase();
+  })[0];
+  if(existe){ sel.value = existe; toast('Ese proveedor ya existía · seleccionado'); return; }
+  var ref = db.ref('proveedores').push();
+  ref.set({nombre:nombre, creado:Date.now(), creadoPor:APP.user.nombre}).then(function(){
+    log('proveedor', 'Creado · '+nombre);
+    /* agregar la opción al vuelo y seleccionarla */
+    var opt = document.createElement('option');
+    opt.value = ref.key; opt.textContent = nombre;
+    sel.insertBefore(opt, sel.querySelector('option[value="__nuevo__"]'));
+    sel.value = ref.key;
+    toast('\u2705 Proveedor "'+nombre+'" agregado');
+  }).catch(function(e){ sel.value = ''; toast('\u26A0\uFE0F No se creó: '+String(e && e.message||e).slice(0,40)); });
+};
+
+/* Agrupa las cuentas por pagar por proveedor. Devuelve array ordenado por deuda desc. */
+function agruparPorProveedor(){
+  var grupos = {};
+  Object.keys(APP.ctas||{}).forEach(function(id){
+    var c = APP.ctas[id];
+    if(!c || (c.tipo||'cobrar') !== 'pagar') return;
+    var key = c.provId || ('__sin__'+(c.nombre||'').toLowerCase());
+    if(!grupos[key]){
+      var nom = c.provId ? ((APP.provs[c.provId]||{}).nombre||'(proveedor borrado)') : (c.nombre||'Sin nombre');
+      grupos[key] = {key:key, provId:c.provId||null, nombre:nom, facturas:[],
+                     deuda:0, total:0, abonado:0, nPend:0, nPag:0};
+    }
+    var g = grupos[key];
+    g.facturas.push(id);
+    g.total += (c.monto||0);
+    g.abonado += (c.abonado||0);
+    if(c.estado === 'pagada') g.nPag++;
+    else { g.deuda += saldoCta(c); g.nPend++; }
+  });
+  return Object.keys(grupos).map(function(k){ return grupos[k]; })
+    .sort(function(a,b){ return b.deuda - a.deuda; });
+}
+
+APP.verProveedores = function(){
+  var grupos = agruparPorProveedor();
+  var totalDeuda = 0;
+  grupos.forEach(function(g){ totalDeuda += g.deuda; });
+  var h = '';
+  h += '<div class="tot-line big"><span>\U0001F4B8 Deuda total a proveedores</span><b style="color:var(--rojo)">'+fmtCOP(totalDeuda)+'</b></div>';
+  h += '<div class="sub" style="font-size:12px;color:var(--gris);margin-bottom:10px">'+grupos.filter(function(g){return g.deuda>0;}).length+' proveedores con saldo pendiente. Toca uno para ver sus facturas y abonar.</div>';
+  var conDeuda = grupos.filter(function(g){ return g.deuda > 0; });
+  var sinDeuda = grupos.filter(function(g){ return g.deuda <= 0; });
+  if(!conDeuda.length) h += '<div class="vacio" style="color:var(--ok);padding:12px">\u2705 No debes nada a ningún proveedor.</div>';
+  conDeuda.forEach(function(g){
+    h += '<div class="card" style="cursor:pointer" onclick="APP.detalleProveedor(\''+escapaAttr(g.key)+'\')">';
+    h += '<div class="cta-top"><b>\U0001F3ED '+escapa(g.nombre)+'</b><span class="badge venc">debe '+fmtCOP(g.deuda)+'</span></div>';
+    h += '<div class="cta-det">'+g.nPend+' factura'+(g.nPend!==1?'s':'')+' pendiente'+(g.nPend!==1?'s':'')+(g.nPag?' · '+g.nPag+' ya pagada'+(g.nPag!==1?'s':''):'')+'</div>';
+    h += '</div>';
+  });
+  if(sinDeuda.length){
+    h += '<div class="lbl" style="margin-top:14px">Al día (sin deuda)</div>';
+    sinDeuda.forEach(function(g){
+      h += '<div class="card" style="cursor:pointer;opacity:.7" onclick="APP.detalleProveedor(\''+escapaAttr(g.key)+'\')">';
+      h += '<div class="cta-top"><b>\U0001F3ED '+escapa(g.nombre)+'</b><span class="badge" style="background:var(--ok);color:#fff">\u2705 al día</span></div>';
+      h += '</div>';
+    });
+  }
+  h += '<button class="btn sec" style="margin-top:12px" onclick="APP.gestionProveedores()">\u2699\ufe0f Administrar proveedores</button>';
+  h += '<button class="btn sec" onclick="APP.cerrarModal()">Cerrar</button>';
+  abrirModal('\U0001F3ED Deuda por proveedor', h);
+};
+
+
+APP._provKeyActual = null;
+APP.detalleProveedor = function(key){
+  APP._provKeyActual = key;
+  var grupos = agruparPorProveedor();
+  var g = grupos.filter(function(x){ return x.key === key; })[0];
+  if(!g){ APP.verProveedores(); return; }
+  /* ordenar facturas: pendientes más viejas primero, pagadas al final */
+  var facs = g.facturas.slice().sort(function(a,b){
+    var ca = APP.ctas[a], cb = APP.ctas[b];
+    if((ca.estado==='pagada') !== (cb.estado==='pagada')) return ca.estado==='pagada' ? 1 : -1;
+    return (ca.creada||0) - (cb.creada||0);
+  });
+  var h = '';
+  h += '<div class="tot-line big"><span>Deuda actual</span><b style="color:'+(g.deuda>0?'var(--rojo)':'var(--ok)')+'">'+(g.deuda>0?fmtCOP(g.deuda):'\u2705 $0')+'</b></div>';
+  h += '<div class="tot-line"><span>Total facturado (histórico)</span><b>'+fmtCOP(g.total)+'</b></div>';
+  h += '<div class="tot-line"><span>Total abonado</span><b style="color:var(--ok)">'+fmtCOP(g.abonado)+'</b></div>';
+
+  if(g.deuda > 0){
+    h += '<button class="btn verde" style="margin-top:12px" onclick="APP.abonoGlobalProv(\''+escapaAttr(key)+'\')">\U0001F4B0 Abonar a la deuda total</button>';
+    h += '<div style="font-size:11px;color:var(--gris);margin:4px 2px 0">Reparte el pago entre las facturas más viejas primero.</div>';
+  }
+
+  h += '<div class="lbl" style="margin-top:16px">Facturas de este proveedor</div>';
+  facs.forEach(function(id){
+    var c = APP.ctas[id];
+    var b = badgeCta(c);
+    var saldo = saldoCta(c);
+    var pagada = c.estado === 'pagada';
+    h += '<div class="card" style="cursor:pointer'+(pagada?';opacity:.6':'')+'" onclick="APP.cerrarModal();APP.detalleCuenta(\''+id+'\')">';
+    h += '<div class="cta-top"><b>'+escapa(c.descripcion||c.nombre)+'</b><span class="badge '+b.cls+'">'+b.tx+'</span></div>';
+    h += '<div class="saldo-line"><span class="abonado">'+((c.abonado||0)>0?'Abonado '+fmtCOP(c.abonado)+' de '+fmtCOP(c.monto):fmtCOP(c.monto)+' · '+(c.fecha||''))+'</span>';
+    h += '<span class="saldo" style="color:'+(pagada?'var(--ok)':'var(--rojo)')+'">'+(pagada?'\u2705 pagada':'debe '+fmtCOP(saldo))+'</span></div>';
+    h += '</div>';
+  });
+
+  h += '<button class="btn sec" style="margin-top:12px" onclick="APP.verProveedores()">\u2190 Volver a proveedores</button>';
+  abrirModal('\U0001F3ED '+escapa(g.nombre), h);
+};
+
+/* Abono global: reparte el monto entre las facturas pendientes, más viejas primero */
+APP._abGlobalKey = null;
+APP.abonoGlobalProv = function(key){
+  APP._abGlobalKey = key;
+  var grupos = agruparPorProveedor();
+  var g = grupos.filter(function(x){ return x.key === key; })[0];
+  if(!g || g.deuda <= 0){ toast('Este proveedor no tiene deuda'); return; }
+  var h = '';
+  h += '<div class="sub" style="font-size:13px;margin-bottom:10px">Deuda total con <b>'+escapa(g.nombre)+'</b>: <b style="color:var(--rojo)">'+fmtCOP(g.deuda)+'</b></div>';
+  h += '<div class="flabel">Método de pago</div><div class="metodos" id="agp-mets">';
+  Object.keys(METS_DISP).forEach(function(m){
+    h += '<button type="button" id="agp-'+m+'" onclick="APP.pickMetGlobal(\''+m+'\')">'+METS_DISP[m].tx+'</button>';
+  });
+  h += '</div>';
+  h += '<div class="flabel" id="agp-monto-lbl">Monto (COP)</div><input class="inp" id="agp-monto" type="text" inputmode="numeric" placeholder="0" oninput="APP.fmtMiles(this)">';
+  h += '<div class="conv" id="agp-conv"></div>';
+  h += '<div class="sub" id="agp-disp" style="font-size:12px;color:var(--gris);margin-top:4px"></div>';
+  h += '<div class="flabel">Nota (opcional)</div><input class="inp" id="agp-nota" type="text" placeholder="Ej: abono semana">';
+  h += '<div class="vacio" id="agp-reparto" style="padding:10px;margin-top:10px;font-size:12px;display:none"></div>';
+  h += '<button class="btn verde" style="margin-top:12px" id="btn-agp" onclick="APP.guardarAbonoGlobal()">\U0001F4B0 Aplicar abono</button>';
+  h += '<button class="btn sec" onclick="APP.detalleProveedor(\''+escapaAttr(key)+'\')">Cancelar</button>';
+  abrirModal('\U0001F4B0 Abonar a '+escapa(g.nombre), h);
+  APP.pickMetGlobal('efcop');
+};
+
+APP._agpMet = 'efcop';
+APP.pickMetGlobal = function(k){
+  APP._agpMet = k;
+  Object.keys(METS_DISP).forEach(function(m){
+    var el = document.getElementById('agp-'+m);
+    if(el) el.classList.toggle('sel', m === k);
+  });
+  var mon = monDe(k);
+  var lbl = document.getElementById('agp-monto-lbl');
+  var inp = document.getElementById('agp-monto');
+  if(document.getElementById('agp-conv')) document.getElementById('agp-conv').innerHTML = '';
+  if(mon === 'COP'){
+    lbl.textContent = 'Monto (COP)';
+    inp.value=''; inp.type='text'; inp.setAttribute('inputmode','numeric'); inp.setAttribute('oninput','APP.fmtMiles(this)');
+  } else {
+    lbl.textContent = mon === 'USD' ? 'Monto (USD)' : 'Monto (Bs)';
+    inp.value=''; inp.type='number'; inp.step='0.01'; inp.min='0'; inp.setAttribute('inputmode','decimal'); inp.setAttribute('oninput','APP.convGlobal(this)');
+  }
+  var d = document.getElementById('agp-disp');
+  if(d) d.textContent = '\U0001F4BC Disponible en este método: '+fmtMon(k, (APP.dispS||{})[k]||0);
+};
+APP.convGlobal = function(inp){
+  var cv = document.getElementById('agp-conv');
+  if(!cv) return;
+  var v = parseFloat(inp.value)||0;
+  cv.innerHTML = v > 0 ? '\u2248 <b>'+fmtCOP(aCOP(APP._agpMet, v))+'</b> COP' : '';
+};
+
+APP._guardandoAgp = false;
+APP.guardarAbonoGlobal = function(){
+  if(APP._guardandoAgp) return;
+  var key = APP._abGlobalKey;
+  var k = APP._agpMet, mon = monDe(k);
+  var monto = (mon === 'COP') ? valMiles('agp-monto') : (parseFloat((document.getElementById('agp-monto')||{}).value)||0);
+  if(monto <= 0){ toast('Ingresa el monto'); return; }
+  var montoCOP = Math.round(aCOP(k, monto));
+
+  /* facturas pendientes del proveedor, más viejas primero */
+  var grupos = agruparPorProveedor();
+  var g = grupos.filter(function(x){ return x.key === key; })[0];
+  if(!g){ toast('Proveedor no encontrado'); return; }
+  var pend = g.facturas.filter(function(id){ return APP.ctas[id].estado !== 'pagada'; })
+    .sort(function(a,b){ return (APP.ctas[a].creada||0) - (APP.ctas[b].creada||0); });
+  if(!pend.length){ toast('No hay facturas pendientes'); return; }
+
+  var disp = (APP.dispS||{})[k]||0;
+  if(monto > disp){
+    if(!confirm('\u26A0\uFE0F En '+METS_DISP[k].tx+' solo hay '+fmtMon(k, disp)+' y vas a pagar '+fmtMon(k, monto)+'.\nEl saldo quedará negativo. ¿Continuar?')) return;
+  }
+
+  /* repartir montoCOP entre facturas (FIFO) */
+  var restante = montoCOP;
+  var upd = {};
+  var nota = ((document.getElementById('agp-nota')||{}).value||'').trim();
+  var repartidas = [];
+  for(var i=0; i<pend.length && restante > 0; i++){
+    var id = pend[i], c = APP.ctas[id];
+    var saldo = saldoCta(c);
+    if(saldo <= 0) continue;
+    var aplica = Math.min(saldo, restante);
+    var propMon = (mon === 'COP') ? aplica : Math.round(aplica / (aCOP(k,1)) * 100)/100;
+    var abono = {
+      monto: propMon, moneda: mon, montoCOP: aplica,
+      tasa: mon === 'USD' ? (APP.tasas.usd||0) : (mon === 'VES' ? (APP.tasas.ves||0) : 1),
+      metodo: k, origen: 'global',
+      nota: (nota ? nota+' · ' : '')+'abono global al proveedor',
+      ts: Date.now(), fecha: fechaOperativa(), usuario: APP.user.nombre
+    };
+    upd['cuentas/'+id+'/abonos/'+db.ref('cuentas/'+id+'/abonos').push().key] = abono;
+    var nuevoAb = (c.abonado||0) + aplica;
+    upd['cuentas/'+id+'/abonado'] = nuevoAb;
+    if(nuevoAb >= (c.monto||0)) upd['cuentas/'+id+'/estado'] = 'pagada';
+    repartidas.push({nombre:c.descripcion||c.nombre, aplica:aplica, pagada: nuevoAb >= (c.monto||0)});
+    restante -= aplica;
+  }
+  if(!repartidas.length){ toast('No se pudo repartir'); return; }
+
+  APP._guardandoAgp = true;
+  var btn = document.getElementById('btn-agp');
+  if(btn){ btn.disabled = true; btn.textContent = '\u23F3 Guardando…'; }
+  var aplicadoCOP = montoCOP - restante;
+  var aplicadoMon = (mon === 'COP') ? aplicadoCOP : Math.round(aplicadoCOP / aCOP(k,1) * 100)/100;
+
+  db.ref().update(upd).then(function(){
+    var deltas = {};
+    deltas[k] = -aplicadoMon;
+    return moverDisponible(deltas, 'abono-pagar', '\U0001F3ED Abono global a '+g.nombre+' · '+fmtMon(k, aplicadoMon)+' ('+repartidas.length+' fact.)');
+  }).then(function(){
+    log('abono-global', g.nombre+' · '+fmtMon(k, aplicadoMon)+' · '+repartidas.length+' facturas');
+    var pagadas = repartidas.filter(function(r){ return r.pagada; }).length;
+    var msg = '\u2705 Abono repartido en '+repartidas.length+' factura'+(repartidas.length!==1?'s':'');
+    if(pagadas) msg += ' · '+pagadas+' quedó'+(pagadas!==1?'aron':'')+' pagada'+(pagadas!==1?'s':'');
+    if(restante > 0) msg += ' · sobró '+fmtCOP(restante)+' (deuda saldada)';
+    toast(msg);
+    APP._guardandoAgp = false;
+    APP.detalleProveedor(key);
+  }).catch(function(e){
+    APP._guardandoAgp = false;
+    if(btn){ btn.disabled = false; btn.textContent = '\U0001F4B0 Aplicar abono'; }
+    toast('\u26A0\uFE0F No se guardó: '+String(e && e.message||e).slice(0,50));
+  });
+};
+
+/* Administrar proveedores: renombrar / eliminar */
+APP.gestionProveedores = function(){
+  var h = '';
+  var ids = provsOrdenados();
+  if(!ids.length) h += '<div class="vacio">Aún no hay proveedores. Se crean al registrar una factura por pagar.</div>';
+  ids.forEach(function(pid){
+    var p = APP.provs[pid];
+    /* contar facturas ligadas */
+    var n = 0;
+    Object.keys(APP.ctas||{}).forEach(function(cid){ if(APP.ctas[cid].provId === pid) n++; });
+    h += '<div class="card"><div class="cta-top"><b>\U0001F3ED '+escapa(p.nombre)+'</b><span class="badge">'+n+' fact.</span></div>';
+    h += '<div style="display:flex;gap:8px;margin-top:8px">';
+    h += '<button class="btn sec" style="flex:1;margin:0" onclick="APP.renombrarProv(\''+pid+'\')">\u270F\ufe0f Renombrar</button>';
+    if(APP.user.rol === 'admin' || APP.user.rol === 'supervisor')
+      h += '<button class="btn" style="flex:1;margin:0;background:var(--rojo);box-shadow:none" onclick="APP.borrarProv(\''+pid+'\')">\U0001F5D1\ufe0f Borrar</button>';
+    h += '</div></div>';
+  });
+  h += '<button class="btn sec" style="margin-top:12px" onclick="APP.verProveedores()">\u2190 Volver</button>';
+  abrirModal('\u2699\ufe0f Administrar proveedores', h);
+};
+APP.renombrarProv = function(pid){
+  var p = APP.provs[pid]; if(!p) return;
+  var nuevo = (prompt('Nuevo nombre para el proveedor:', p.nombre)||'').trim();
+  if(!nuevo || nuevo === p.nombre) return;
+  db.ref('proveedores/'+pid+'/nombre').set(nuevo).then(function(){
+    log('proveedor', 'Renombrado · '+p.nombre+' → '+nuevo);
+    toast('\u2705 Renombrado');
+    APP.gestionProveedores();
+  });
+};
+APP.borrarProv = function(pid){
+  var p = APP.provs[pid]; if(!p) return;
+  var n = 0;
+  Object.keys(APP.ctas||{}).forEach(function(cid){ if(APP.ctas[cid].provId === pid) n++; });
+  var aviso = n ? '\nLas '+n+' factura(s) ligadas NO se borran, solo quedan sin proveedor.' : '';
+  if(!confirm('¿Borrar el proveedor "'+p.nombre+'"?'+aviso)) return;
+  var upd = {};
+  upd['proveedores/'+pid] = null;
+  Object.keys(APP.ctas||{}).forEach(function(cid){ if(APP.ctas[cid].provId === pid) upd['cuentas/'+cid+'/provId'] = null; });
+  db.ref().update(upd).then(function(){
+    log('proveedor', 'Borrado · '+p.nombre);
+    toast('\U0001F5D1\ufe0f Proveedor borrado');
+    APP.gestionProveedores();
+  });
+};
+
+/* ═══ RESUMEN FACTURAS DEL MES ═══ */
+APP.resumenCtasMes = function(){
+  var hoy = fechaOperativa().slice(0,7);
+  var h = '<div class="flabel">Mes a revisar</div><input class="inp" id="rcm-mes" type="month" value="'+hoy+'" onchange="APP.renderResumenCtas()">';
+  h += '<div id="rcm-cont" style="margin-top:10px"></div>';
+  h += '<button class="btn sec" onclick="APP.cerrarModal()">Cerrar</button>';
+  abrirModal('📊 Facturas del mes', h);
+  APP.renderResumenCtas();
+};
+APP.renderResumenCtas = function(){
+  var cont = document.getElementById('rcm-cont');
+  if(!cont) return;
+  var mes = (document.getElementById('rcm-mes')||{}).value || fechaOperativa().slice(0,7);
+  var g = {contado:[], credito:[], parcial:[], pend:[]};
+  var arrastre = 0, nArr = 0;
+  Object.keys(APP.ctas||{}).forEach(function(id){
+    var c = APP.ctas[id];
+    if(!c || c.tipo !== 'pagar') return;
+    var f = (c.fecha||'').slice(0,7);
+    if(f && f < mes && c.estado !== 'pagada'){ arrastre += Math.max(0, (c.monto||0)-(c.abonado||0)); nArr++; }
+    if(f !== mes) return;
+    var ab = c.abonos||{}, ult = '';
+    Object.keys(ab).forEach(function(k){ if((ab[k].fecha||'') > ult) ult = ab[k].fecha||''; });
+    if(c.estado === 'pagada'){
+      if(!ult || ult === c.fecha) g.contado.push(c); else g.credito.push(c);
+    } else if((c.abonado||0) > 0) g.parcial.push(c);
+    else g.pend.push(c);
+  });
+  function tot(arr, fn){ var s = 0; arr.forEach(function(c){ s += fn(c); }); return s; }
+  function lista(arr, fn){
+    if(!arr.length) return '<div style="font-size:12px;color:var(--gris);padding:4px 0">\u2014 ninguna</div>';
+    var h2 = '';
+    arr.forEach(function(c){ h2 += '<div class="tot-line"><span>'+escapa(c.nombre)+'</span><b>'+fn(c)+'</b></div>'; });
+    return h2;
+  }
+  var totContado = tot(g.contado, function(c){ return c.monto||0; });
+  var totCredito = tot(g.credito, function(c){ return c.monto||0; });
+  var totParcialAb = tot(g.parcial, function(c){ return c.abonado||0; });
+  var totParcialSaldo = tot(g.parcial, function(c){ return Math.max(0,(c.monto||0)-(c.abonado||0)); });
+  var totPend = tot(g.pend, function(c){ return c.monto||0; });
+  var h = '';
+  h += '<div class="lbl">💵 Pagadas de contado (mismo d\u00eda) \u00b7 '+g.contado.length+' \u00b7 '+fmtCOP(totContado)+'</div>'+lista(g.contado, function(c){ return fmtCOP(c.monto||0); });
+  h += '<div class="lbl" style="margin-top:12px">📆 A cr\u00e9dito, ya pagadas \u00b7 '+g.credito.length+' \u00b7 '+fmtCOP(totCredito)+'</div>'+lista(g.credito, function(c){ return fmtCOP(c.monto||0); });
+  h += '<div class="lbl" style="margin-top:12px">🟡 Abonadas, con saldo pendiente \u00b7 '+g.parcial.length+' \u00b7 deben '+fmtCOP(totParcialSaldo)+'</div>'+lista(g.parcial, function(c){ return 'abon\u00f3 '+fmtCOP(c.abonado||0)+' \u00b7 debe '+fmtCOP(Math.max(0,(c.monto||0)-(c.abonado||0))); });
+  h += '<div class="lbl" style="margin-top:12px">🔴 Sin ning\u00fan pago \u00b7 '+g.pend.length+' \u00b7 '+fmtCOP(totPend)+'</div>'+lista(g.pend, function(c){ return fmtCOP(c.monto||0); });
+  h += '<div class="tot-line big" style="margin-top:12px"><span>Total facturado en el mes</span><b>'+fmtCOP(totContado+totCredito+tot(g.parcial,function(c){return c.monto||0;})+totPend)+'</b></div>';
+  h += '<div class="tot-line"><span>Qued\u00f3 pendiente por pagar</span><b style="color:var(--rojo)">'+fmtCOP(totParcialSaldo+totPend)+'</b></div>';
+  if(nArr) h += '<div style="font-size:12px;color:var(--gris);margin-top:8px">\u26a0\ufe0f Adem\u00e1s arrastras '+nArr+' factura(s) de meses anteriores sin pagar: '+fmtCOP(arrastre)+'</div>';
+  cont.innerHTML = h;
+};
+
+
+/* ═══ CIERRE DE MES (portado + histórico migrado) ═══ */
+APP._cmMes = '';
+APP.cierreMes = function(){
+  var hoy = fechaOperativa().slice(0,7);
+  var h = '<div class="flabel">Mes a cerrar</div><input class="inp" id="cm-mes" type="month" value="'+(APP._cmMes||hoy)+'">';
+  h += '<div class="sub" style="font-size:12px;color:var(--gris);margin-top:6px">Se arma con todos los cierres de caja del mes, más las facturas por pagar. Si el mes va a medias, sale con lo que haya hasta hoy.</div>';
+  h += '<button class="btn" style="margin-top:12px" onclick="APP.generarCierreMes()">Generar cierre del mes</button>';
+  h += '<button class="btn sec" onclick="APP.cerrarModal()">Cancelar</button>';
+  abrirModal('\uD83D\uDCC4 Cierre de Mes', h);
+};
+
+function nombreMes(m){
+  var MM = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  var y = m.slice(0,4), mm = parseInt(m.slice(5,7),10);
+  return MM[mm-1]+' '+y;
+}
+function mesAnterior(m){
+  var y = parseInt(m.slice(0,4),10), mm = parseInt(m.slice(5,7),10);
+  mm--; if(mm < 1){ mm = 12; y--; }
+  return y+'-'+String(mm).padStart(2,'0');
+}
+
+/* Agrega todos los cierres de un mes en un objeto de totales */
+function agregarMes(turnos, mes){
+  var desde = mes+'-01', hasta = mes+'-31';
+  var A = {
+    ventaTotal:0, egresosCaja:0, difPOS:0, dias:{}, nCierres:0,
+    metodos:{efcop:0, efusd:0, efves:0, bancol:0, zelle:0, bs:0, otros:0},
+    egrTipo:{compras:0, fijo:0, variable:0}, egrCat:{},
+    primerDia:'', ultimoDia:''
+  };
+  Object.keys(turnos).forEach(function(k){
+    var d = turnos[k];
+    if(!d || d.estado !== 'cerrada' || !d.cierre) return;
+    var f = d.fecha||'';
+    if(f < desde || f > hasta) return;
+    var ci = d.cierre, t = ci.tasas||{usd:4200, ves:0};
+    A.ventaTotal += (ci.ventaTurno||0);
+    A.egresosCaja += (ci.egresos||0);
+    A.difPOS += (ci.diferencia||0);
+    A.dias[f] = (A.dias[f]||0) + (ci.ventaTurno||0);
+    A.nCierres++;
+    if(!A.primerDia || f < A.primerDia) A.primerDia = f;
+    if(!A.ultimoDia || f > A.ultimoDia) A.ultimoDia = f;
+    var c = ci.conteo||{};
+    A.metodos.efcop += (c.ef_cop||0);
+    A.metodos.efusd += (c.ef_usd||0)*(t.usd||0);
+    A.metodos.efves += (c.ef_ves||0)*(t.ves||0);
+    A.metodos.bancol += (c.bancol||0)+(c.nequi||0);
+    A.metodos.zelle += (c.zelle||0)*(t.usd||0);
+    A.metodos.bs += (c.bs||0)*(t.ves||0);
+    A.metodos.otros += (c.otros||0);
+    var et = ci.egresosPorTipo||{};
+    Object.keys(et).forEach(function(x){
+      var kk = (x==='insumo') ? 'compras' : x;
+      A.egrTipo[kk] = (A.egrTipo[kk]||0) + (et[x]||0);
+    });
+    var ec = ci.egresosPorCategoria||{};
+    Object.keys(ec).forEach(function(x){ A.egrCat[x] = (A.egrCat[x]||0) + (ec[x]||0); });
+  });
+  return A;
+}
+
+/* Facturas por pagar del mes: pagadas y pendientes */
+function facturasMes(ctas, mes){
+  var R = {pagadasContado:0, pagadasCredito:0, abonado:0, saldoParcial:0, pendTotal:0,
+           nPagadas:0, nPend:0, arrastre:0, nArr:0, listaPend:[]};
+  Object.keys(ctas||{}).forEach(function(id){
+    var c = ctas[id];
+    if(!c || c.tipo !== 'pagar') return;
+    var f = (c.fecha||'').slice(0,7);
+    var saldo = Math.max(0, (c.monto||0)-(c.abonado||0));
+    if(f && f < mes && c.estado !== 'pagada'){ R.arrastre += saldo; R.nArr++; R.listaPend.push({n:c.nombre, s:saldo, viejo:true}); return; }
+    if(f !== mes) return;
+    var ab = c.abonos||{}, ult='';
+    Object.keys(ab).forEach(function(k){ if((ab[k].fecha||'') > ult) ult = ab[k].fecha||''; });
+    if(c.estado === 'pagada'){
+      R.nPagadas++;
+      if(!ult || ult === c.fecha) R.pagadasContado += (c.monto||0);
+      else R.pagadasCredito += (c.monto||0);
+    } else {
+      R.nPend++;
+      R.abonado += (c.abonado||0);
+      R.saldoParcial += saldo;
+      R.pendTotal += saldo;
+      R.listaPend.push({n:c.nombre, s:saldo, viejo:false});
+    }
+  });
+  return R;
+}
+
+/* Gastos a crédito PAGADOS dentro del mes, agrupados por categoría.
+   Cuenta cada abono por su fecha de pago (no la fecha de la factura). */
+function creditoPorCategoria(ctas, mes){
+  var desde = mes+'-01', hasta = mes+'-31';
+  var porCat = {}; var total = 0;
+  Object.keys(ctas||{}).forEach(function(id){
+    var c = ctas[id];
+    if(!c || (c.tipo||'cobrar') !== 'pagar') return;
+    var cat = c.categoria || '\uD83D\uDCB8 Otros';
+    var ab = c.abonos||{};
+    Object.keys(ab).forEach(function(ak){
+      var a = ab[ak];
+      var f = a.fecha||'';
+      if(f < desde || f > hasta) return;
+      var monto = a.montoCOP||0;
+      porCat[cat] = (porCat[cat]||0) + monto;
+      total += monto;
+    });
+  });
+  return {porCat:porCat, total:total};
+}
+
+/* Combina gastos de caja (contado) + crédito pagado, por categoría */
+function consolidarCategorias(egrCatCaja, credCat){
+  var todas = {};
+  Object.keys(egrCatCaja||{}).forEach(function(c){
+    todas[c] = todas[c]||{contado:0, credito:0};
+    todas[c].contado += egrCatCaja[c]||0;
+  });
+  Object.keys(credCat||{}).forEach(function(c){
+    todas[c] = todas[c]||{contado:0, credito:0};
+    todas[c].credito += credCat[c]||0;
+  });
+  return Object.keys(todas).map(function(c){
+    return {cat:c, contado:todas[c].contado, credito:todas[c].credito, total:todas[c].contado+todas[c].credito};
+  }).filter(function(x){ return x.total > 0; })
+    .sort(function(a,b){ return b.total - a.total; });
+}
+
+/* Suma ventas/gastos migrados de historico/ventas en días que no tienen cierre propio */
+function sumarHistMig(A, histMig, mes){
+  var desde = mes+'-01', hasta = mes+'-31';
+  Object.keys(histMig||{}).forEach(function(f){
+    if(f < desde || f > hasta) return;
+    if(A.dias[f]) return; /* ya hay cierre propio ese día */
+    var v = histMig[f]||{};
+    if(!(v.venta > 0) && !(v.gastos > 0)) return;
+    A.ventaTotal += (v.venta||0);
+    A.dias[f] = (v.venta||0);
+    A.nCierres++;
+    if(!A.primerDia || f < A.primerDia) A.primerDia = f;
+    if(!A.ultimoDia || f > A.ultimoDia) A.ultimoDia = f;
+  });
+}
+APP._cmDatos = null;
+APP.generarCierreMes = function(){
+  var mes = (document.getElementById('cm-mes')||{}).value||fechaOperativa().slice(0,7);
+  APP._cmMes = mes;
+  abrirModal('\uD83D\uDCC4 Cierre de '+nombreMes(mes), '<div class="cargando">Reuniendo todo el mes\u2026</div>');
+  var prev = mesAnterior(mes);
+  Promise.all([
+    db.ref('caja/turnos').once('value'),
+    db.ref('cuentas').once('value'),
+    db.ref('historico/ventas').once('value')
+  ]).then(function(res){
+    var turnos = res[0].val()||{};
+    var ctas = res[1].val()||{};
+    var histMig = res[2].val()||{};
+    var A = agregarMes(turnos, mes);
+    var Ap = agregarMes(turnos, prev);
+    /* sumar histórico migrado (días sin cierre propio) del mes */
+    sumarHistMig(A, histMig, mes);
+    sumarHistMig(Ap, histMig, prev);
+    var F = facturasMes(ctas, mes);
+    var costo = A.egrTipo.compras||0;
+    var ventas = A.ventaTotal;
+    var otrosGastos = (A.egrTipo.fijo||0)+(A.egrTipo.variable||0);
+    var utilidad = ventas - costo - otrosGastos;
+    var margen = ventas>0 ? Math.round(utilidad/ventas*100) : 0;
+    var costoPrev = Ap.egrTipo.compras||0;
+    var otrosPrev = (Ap.egrTipo.fijo||0)+(Ap.egrTipo.variable||0);
+    var utilidadPrev = Ap.ventaTotal - costoPrev - otrosPrev;
+    var diasArr = Object.keys(A.dias).sort();
+    var mejorDia = {f:'', v:0};
+    diasArr.forEach(function(f){ if(A.dias[f] > mejorDia.v) mejorDia = {f:f, v:A.dias[f]}; });
+    var nDias = diasArr.length;
+    var prom = nDias ? Math.round(ventas/nDias) : 0;
+    var cred = creditoPorCategoria(ctas, mes);
+    var catsConsol = consolidarCategorias(A.egrCat, cred.porCat);
+    /* Deuda de mercancía/gasto ya recibido este mes pero aún no pagado */
+    var deudaMes = F.pendTotal||0;
+    var utilidadAjust = utilidad - deudaMes;
+    var margenAjust = ventas>0 ? Math.round(utilidadAjust/ventas*100) : 0;
+    APP._cmDatos = {mes:mes, prev:prev, A:A, Ap:Ap, F:F, costo:costo, ventas:ventas,
+      otrosGastos:otrosGastos, utilidad:utilidad, margen:margen, utilidadPrev:utilidadPrev,
+      mejorDia:mejorDia, nDias:nDias, prom:prom,
+      credTotal:cred.total, catsConsol:catsConsol,
+      deudaMes:deudaMes, utilidadAjust:utilidadAjust, margenAjust:margenAjust};
+    renderCierreMesModal();
+  }).catch(function(e){
+    abrirModal('\uD83D\uDCC4 Cierre de Mes', '<div class="vacio">\u26A0\uFE0F '+escapa(String(e && e.message || e).slice(0,60))+'</div>');
+  });
+};
+
+function flechaComp(actual, prev){
+  if(!prev) return '';
+  var dif = actual - prev;
+  var pct = Math.round(dif/Math.abs(prev)*100);
+  if(Math.abs(pct) < 1) return ' <span style="color:var(--gris);font-size:11px">= igual</span>';
+  var col = dif >= 0 ? 'var(--ok)' : 'var(--rojo)';
+  var fl = dif >= 0 ? '\u25B2' : '\u25BC';
+  return ' <span style="color:'+col+';font-size:11px">'+fl+' '+Math.abs(pct)+'% vs mes anterior</span>';
+}
+
+function renderCierreMesModal(){
+  var D = APP._cmDatos; if(!D) return;
+  var A = D.A, F = D.F;
+  var h = '';
+  h += '<div class="tot-line big"><span>\uD83D\uDCB0 Ventas del mes</span><b style="color:var(--ok)">'+fmtCOP(D.ventas)+'</b></div>';
+  h += '<div style="text-align:right;margin:-6px 0 8px">'+flechaComp(D.ventas, D.Ap.ventaTotal)+'</div>';
+  h += '<div class="tot-line"><span>\uD83D\uDCE6 Costo (compras)</span><b style="color:var(--rojo)">- '+fmtCOP(D.costo)+'</b></div>';
+  h += '<div class="tot-line"><span>\uD83E\uDDFE Otros gastos (fijos+variables)</span><b style="color:var(--rojo)">- '+fmtCOP(D.otrosGastos)+'</b></div>';
+  h += '<div class="tot-line big"><span>\uD83D\uDCC8 Utilidad por caja (lo pagado)</span><b style="color:'+(D.utilidad>=0?'var(--ok)':'var(--rojo)')+'">'+fmtCOP(D.utilidad)+'</b></div>';
+  h += '<div style="text-align:right;margin:-6px 0 4px"><span style="font-size:11px;color:var(--gris)">margen '+D.margen+'%</span>'+flechaComp(D.utilidad, D.utilidadPrev)+'</div>';
+  if(D.deudaMes>0){
+    h += '<div class="tot-line"><span>\uD83D\uDCE6 Mercancía recibida sin pagar</span><b style="color:var(--rojo)">- '+fmtCOP(D.deudaMes)+'</b></div>';
+    h += '<div style="font-size:11px;color:var(--gris);margin:-4px 0 6px 4px">Ya la tienes/usaste, pero aún no ha salido el dinero.</div>';
+    h += '<div class="tot-line big"><span>\u2696\ufe0f Utilidad real (con lo que debes)</span><b style="color:'+(D.utilidadAjust>=0?'var(--ok)':'var(--rojo)')+'">'+fmtCOP(D.utilidadAjust)+'</b></div>';
+    h += '<div style="text-align:right;margin:-6px 0 4px"><span style="font-size:11px;color:var(--gris)">margen real '+D.margenAjust+'%</span></div>';
+  }
+  h += '<div class="sub" style="font-size:11px;color:var(--gris);margin-bottom:10px">'+D.nDias+' d\u00edas con cierre \u00b7 promedio '+fmtCOP(D.prom)+'/d\u00eda'+(D.mejorDia.f?' \u00b7 mejor d\u00eda '+D.mejorDia.f.slice(8,10)+'/'+D.mejorDia.f.slice(5,7)+' ('+fmtCOP(D.mejorDia.v)+')':'')+'</div>';
+
+  h += '<div class="lbl" style="margin-top:6px">\uD83E\uDDFE Facturas por pagar</div>';
+  h += '<div class="tot-line"><span>Pagadas de contado</span><b>'+fmtCOP(F.pagadasContado)+'</b></div>';
+  h += '<div class="tot-line"><span>Pagadas a cr\u00e9dito</span><b>'+fmtCOP(F.pagadasCredito)+'</b></div>';
+  h += '<div class="tot-line"><span>Pendientes del mes</span><b style="color:var(--rojo)">'+fmtCOP(F.pendTotal)+'</b></div>';
+  if(F.arrastre) h += '<div class="tot-line"><span>Arrastre de meses previos</span><b style="color:var(--rojo)">'+fmtCOP(F.arrastre)+'</b></div>';
+
+  var cats = D.catsConsol||[];
+  if(cats.length){
+    h += '<div class="lbl" style="margin-top:12px">\uD83D\uDCCA Gastos por categor\u00eda (todo)</div>';
+    cats.forEach(function(c){
+      h += '<div class="tot-line"><span>'+escapa(c.cat)+'</span><b>'+fmtCOP(c.total)+'</b></div>';
+      if(c.contado>0 && c.credito>0){
+        h += '<div style="font-size:11px;color:var(--gris);margin:-4px 0 6px 4px">\u00b7 contado '+fmtCOP(c.contado)+' \u00b7 cr\u00e9dito '+fmtCOP(c.credito)+'</div>';
+      } else if(c.credito>0){
+        h += '<div style="font-size:11px;color:var(--gris);margin:-4px 0 6px 4px">\u00b7 todo a cr\u00e9dito</div>';
+      }
+    });
+    if(D.credTotal>0) h += '<div style="font-size:11px;color:var(--gris);margin-top:4px">Incluye '+fmtCOP(D.credTotal)+' de facturas a cr\u00e9dito pagadas este mes.</div>';
+  }
+
+  h += '<button class="btn" style="margin-top:16px" onclick="APP.pdfCierreMes()">\uD83D\uDCC4 Ver / Guardar PDF</button>';
+  h += '<button class="btn" style="margin-top:8px;background:#25D366;box-shadow:none" onclick="APP.waCierreMes()">\uD83D\uDCF2 Enviar resumen por WhatsApp</button>';
+  h += '<button class="btn sec" onclick="APP.cerrarModal()">Cerrar</button>';
+  abrirModal('\uD83D\uDCC4 Cierre de '+nombreMes(D.mes), h);
+}
+
+/* Texto para WhatsApp */
+APP.waCierreMes = function(){
+  var D = APP._cmDatos; if(!D) return;
+  var A = D.A, F = D.F;
+  var t = [];
+  t.push('\uD83E\uDD90 *DON CAMAR\u00d3N \u2014 CIERRE DE '+nombreMes(D.mes).toUpperCase()+'*');
+  t.push('_'+(A.primerDia||'')+' al '+(A.ultimoDia||'')+' \u00b7 '+D.nDias+' d\u00edas_');
+  t.push('');
+  t.push('\uD83D\uDCB0 *Ventas:* '+fmtCOP(D.ventas));
+  t.push('\uD83D\uDCE6 Costo (compras): -'+fmtCOP(D.costo));
+  t.push('\uD83E\uDDFE Otros gastos: -'+fmtCOP(D.otrosGastos));
+  t.push('\uD83D\uDCC8 *Utilidad por caja: '+fmtCOP(D.utilidad)+'* (margen '+D.margen+'%)');
+  if(D.deudaMes>0){
+    t.push('\uD83D\uDCE6 Mercancía recibida sin pagar: -'+fmtCOP(D.deudaMes));
+    t.push('\u2696\uFE0F *Utilidad real (con lo que debes): '+fmtCOP(D.utilidadAjust)+'* (margen '+D.margenAjust+'%)');
+  }
+  if(D.Ap.ventaTotal){
+    var dv = D.ventas - D.Ap.ventaTotal;
+    t.push('   '+(dv>=0?'\u25B2':'\u25BC')+' '+fmtCOP(Math.abs(dv))+' en ventas vs '+nombreMes(D.prev));
+  }
+  t.push('');
+  t.push('\uD83D\uDCCA *Promedio:* '+fmtCOP(D.prom)+'/d\u00eda');
+  if(D.mejorDia.f) t.push('\uD83C\uDFC6 Mejor d\u00eda: '+D.mejorDia.f.slice(8,10)+'/'+D.mejorDia.f.slice(5,7)+' \u2192 '+fmtCOP(D.mejorDia.v));
+  t.push('');
+  t.push('\uD83E\uDDFE *FACTURAS*');
+  t.push('\u2705 Pagadas contado: '+fmtCOP(F.pagadasContado));
+  t.push('\uD83D\uDCC6 Pagadas cr\u00e9dito: '+fmtCOP(F.pagadasCredito));
+  t.push('\uD83D\uDD34 Pendientes del mes: '+fmtCOP(F.pendTotal));
+  if(F.arrastre) t.push('\u26A0\uFE0F Arrastre previo: '+fmtCOP(F.arrastre));
+  var cats = D.catsConsol||[];
+  if(cats.length){
+    t.push('');
+    t.push('\uD83D\uDCB8 *GASTOS POR CATEGOR\u00cdA*');
+    cats.slice(0,12).forEach(function(c){
+      var extra = (c.contado>0 && c.credito>0) ? ' (cont '+fmtCOP(c.contado)+' + cr\u00e9d '+fmtCOP(c.credito)+')' : (c.credito>0 ? ' (cr\u00e9dito)' : '');
+      t.push('\u2022 '+c.cat+': '+fmtCOP(c.total)+extra);
+    });
+  }
+  t.push('');
+  t.push('_Generado el '+fechaOperativa()+' por '+APP.user.nombre+'_');
+  var msg = t.join('\n');
+  window.open('https://wa.me/?text='+encodeURIComponent(msg), '_blank');
+};
+
+/* PDF vía ventana de impresión (Guardar como PDF en el teléfono) */
+APP.pdfCierreMes = function(){
+  var D = APP._cmDatos; if(!D) return;
+  var A = D.A, F = D.F;
+  var cats = D.catsConsol||[];
+  var diasArr = Object.keys(A.dias).sort();
+  function row(a,b,col){ return '<tr><td>'+a+'</td><td class="r" style="'+(col?'color:'+col:'')+'"><b>'+b+'</b></td></tr>'; }
+  var comp = '';
+  if(D.Ap.ventaTotal){
+    var dv = D.ventas - D.Ap.ventaTotal;
+    var pct = Math.round(dv/Math.abs(D.Ap.ventaTotal)*100);
+    comp = '<p class="comp">'+(dv>=0?'\u25B2':'\u25BC')+' '+Math.abs(pct)+'% en ventas vs '+nombreMes(D.prev)+' ('+fmtCOP(D.Ap.ventaTotal)+')</p>';
+  }
+  var pendRows = '';
+  F.listaPend.slice(0,25).forEach(function(p){
+    pendRows += '<tr><td>'+escapa(p.n)+(p.viejo?' <span class="viejo">(mes previo)</span>':'')+'</td><td class="r">'+fmtCOP(p.s)+'</td></tr>';
+  });
+  var catRows = '';
+  cats.forEach(function(c){
+    var sub = (c.contado>0 && c.credito>0) ? '<div class="viejo" style="color:#7A8580">contado '+fmtCOP(c.contado)+' \u00b7 cr\u00e9dito '+fmtCOP(c.credito)+'</div>' : (c.credito>0 ? '<div class="viejo" style="color:#7A8580">a cr\u00e9dito</div>' : '');
+    catRows += '<tr><td>'+escapa(c.cat)+sub+'</td><td class="r"><b>'+fmtCOP(c.total)+'</b></td></tr>';
+  });
+  var diasBars = '';
+  var maxD = 0; diasArr.forEach(function(f){ if(A.dias[f]>maxD) maxD=A.dias[f]; });
+  diasArr.forEach(function(f){
+    var pct = maxD>0 ? Math.max(3, Math.round(A.dias[f]/maxD*100)) : 0;
+    diasBars += '<div class="dcol" title="'+f+'"><div class="dbar" style="height:'+pct+'px"></div><span>'+f.slice(8,10)+'</span></div>';
+  });
+
+  var html = ''
+  + '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+  + '<title>Cierre '+nombreMes(D.mes)+' - Coloncito</title><style>'
+  + '*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif}'
+  + 'body{color:#1C2B28;padding:22px;max-width:760px;margin:0 auto;background:#fff}'
+  + '.hd{background:linear-gradient(160deg,#0E3B33,#14524A);color:#fff;padding:26px;border-radius:16px;margin-bottom:18px}'
+  + '.hd .mini{font-size:11px;letter-spacing:2px;opacity:.8;text-transform:uppercase}'
+  + '.hd h1{font-size:26px;margin-top:4px}.hd .sub{opacity:.85;margin-top:4px;font-size:13px}'
+  + '.big{background:#FAF7F2;border:1px solid #E8E1D5;border-radius:14px;padding:18px;margin-bottom:14px}'
+  + '.big .util{font-size:34px;font-weight:800;color:'+(D.utilidad>=0?'#1E7D4E':'#C0392B')+'}'
+  + '.big .lb{font-size:12px;color:#7A8580;text-transform:uppercase;letter-spacing:1px}'
+  + '.comp{font-size:13px;color:#7A8580;margin-top:6px}'
+  + '.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}'
+  + '.kpi{background:#fff;border:1px solid #E8E1D5;border-radius:12px;padding:14px}'
+  + '.kpi .v{font-size:20px;font-weight:800}.kpi .t{font-size:11px;color:#7A8580;margin-top:2px}'
+  + 'h2{font-size:15px;margin:18px 0 8px;color:#0E3B33;border-bottom:2px solid #FF6B4A;padding-bottom:4px;display:inline-block}'
+  + 'table{width:100%;border-collapse:collapse;font-size:13px}'
+  + 'td{padding:7px 4px;border-bottom:1px solid #F0ECE3}.r{text-align:right}'
+  + '.viejo{color:#C0392B;font-size:10px}'
+  + '.chart{display:flex;align-items:flex-end;gap:3px;height:120px;padding:10px;background:#FAF7F2;border-radius:12px;margin-top:8px;overflow-x:auto}'
+  + '.dcol{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:22px}'
+  + '.dbar{width:14px;background:#FF6B4A;border-radius:3px 3px 0 0}'
+  + '.dcol span{font-size:8px;color:#7A8580;margin-top:3px}'
+  + '.foot{margin-top:24px;font-size:11px;color:#7A8580;text-align:center;border-top:1px solid #E8E1D5;padding-top:12px}'
+  + '.noprint{margin-top:20px;text-align:center}'
+  + '.noprint button{background:#FF6B4A;color:#fff;border:none;padding:14px 28px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer}'
+  + '@media print{.noprint{display:none}body{padding:0}}'
+  + '</style></head><body>'
+  + '<div class="hd"><div class="mini">\uD83D\uDC1F Pescader\u00eda Coloncito</div><h1>Cierre de '+nombreMes(D.mes)+'</h1><div class="sub">Resumen para socios \u00b7 '+(A.primerDia||'')+' al '+(A.ultimoDia||'')+' \u00b7 '+D.nDias+' dias operados</div></div>'
+  + '<div class="big"><div class="lb">Utilidad por caja (lo pagado)</div><div class="util">'+fmtCOP(D.utilidad)+'</div><div class="comp">Margen '+D.margen+'% sobre ventas'+(D.Ap.ventaTotal?' \u00b7 '+(D.utilidad-D.utilidadPrev>=0?'\u25B2':'\u25BC')+' '+fmtCOP(Math.abs(D.utilidad-D.utilidadPrev))+' vs '+nombreMes(D.prev):'')+'</div>'
+  + (D.deudaMes>0 ? '<div style="margin-top:12px;padding-top:12px;border-top:1px dashed #E8E1D5"><div class="lb">\uD83D\uDCE6 Mercancía recibida sin pagar: <b style="color:#C0392B">-'+fmtCOP(D.deudaMes)+'</b></div><div class="lb" style="margin-top:6px">\u2696\uFE0F Utilidad real (con lo que debes)</div><div class="util" style="font-size:26px;color:'+(D.utilidadAjust>=0?'#1E7D4E':'#C0392B')+'">'+fmtCOP(D.utilidadAjust)+'</div><div class="comp">Margen real '+D.margenAjust+'%</div></div>' : '')
+  + '</div>'
+  + '<div class="grid">'
+  + '<div class="kpi"><div class="v" style="color:#1E7D4E">'+fmtCOP(D.ventas)+'</div><div class="t">Ventas totales</div></div>'
+  + '<div class="kpi"><div class="v" style="color:#C0392B">'+fmtCOP(D.costo)+'</div><div class="t">Costo (compras)</div></div>'
+  + '<div class="kpi"><div class="v" style="color:#C0392B">'+fmtCOP(D.otrosGastos)+'</div><div class="t">Otros gastos</div></div>'
+  + '<div class="kpi"><div class="v">'+fmtCOP(D.prom)+'</div><div class="t">Promedio por dia</div></div>'
+  + '</div>'
+  + comp
+  + '<h2>Ventas por dia</h2><div class="chart">'+diasBars+'</div>'
+  + '<h2>Ingresos por metodo</h2><table>'
+  + row('\uD83D\uDCB4 Efectivo COP', fmtCOP(A.metodos.efcop))
+  + row('\uD83C\uDFE6 Bancolombia / Nequi', fmtCOP(A.metodos.bancol))
+  + row('\uD83D\uDCB5 Efectivo USD', fmtCOP(A.metodos.efusd))
+  + row('\uD83D\uDCBB Zelle', fmtCOP(A.metodos.zelle))
+  + row('\uD83C\uDDFB\uD83C\uDDEA Bs transferencias', fmtCOP(A.metodos.bs))
+  + row('\uD83C\uDDFB\uD83C\uDDEA Efectivo Bs', fmtCOP(A.metodos.efves))
+  + (A.metodos.otros?row('\uD83C\uDFDB\uFE0F Otros', fmtCOP(A.metodos.otros)):'')
+  + '</table>'
+  + '<h2>Facturas por pagar</h2><table>'
+  + row('\u2705 Pagadas de contado', fmtCOP(F.pagadasContado), '#1E7D4E')
+  + row('\uD83D\uDCC6 Pagadas a credito', fmtCOP(F.pagadasCredito), '#1E7D4E')
+  + row('\uD83D\uDD34 Pendientes del mes', fmtCOP(F.pendTotal), '#C0392B')
+  + (F.arrastre?row('\u26A0\uFE0F Arrastre de meses previos', fmtCOP(F.arrastre), '#C0392B'):'')
+  + '</table>'
+  + (pendRows?'<h2>Detalle de pendientes</h2><table>'+pendRows+'</table>':'')
+  + (catRows?'<h2>Gastos por categoria</h2><table>'+catRows+'</table>':'')
+  + '<div class="foot">Generado el '+fechaOperativa()+' por '+escapa(APP.user.nombre)+' \u00b7 Coloncito Control</div>'
+  + '<div class="noprint"><button onclick="window.print()">\uD83D\uDCC4 Guardar como PDF / Imprimir</button></div>'
+  + '</body></html>';
+
+  var w = window.open('', '_blank');
+  if(!w){ toast('\u26A0\uFE0F Permite las ventanas emergentes para ver el PDF'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
 };
 
 init();
