@@ -708,9 +708,7 @@ select.inp{appearance:none;-webkit-appearance:none}
   <div class="wrap">
     <div class="card"><div class="lbl">Saldos por método</div><div id="dp-saldos"></div></div>
     <button class="btn" onclick="APP.modalMovManual()">± Movimiento manual</button>
-    <button class="btn" style="margin-top:8px;background:var(--noche,#3B5BA5);box-shadow:0 4px 14px rgba(59,91,165,.25)" onclick="APP.auditarDisponible()">🩺 Auditar saldos · buscar dinero fantasma</button>
-    <button class="btn" style="margin-top:8px;background:var(--mar,#0E3B33);box-shadow:0 4px 14px rgba(14,59,51,.25)" onclick="APP.reconstruirDisponible()">♻️ Reconstruir saldos desde cero</button>
-    <button class="btn" style="margin-top:8px;background:var(--ok);box-shadow:0 4px 14px rgba(30,125,78,.25)" onclick="APP.ajustarSaldoReal()">✅ Ajustar a saldo real · contar y cuadrar</button>
+    <button class="btn" style="margin-top:8px;background:var(--ok);box-shadow:0 4px 14px rgba(30,125,78,.25)" onclick="APP.ajustarSaldoReal()">✅ Cuadrar saldos · contar lo que hay de verdad</button>
     <div class="card" style="margin-top:12px"><div class="lbl">Historial de movimientos</div><div id="dp-movs"><div class="cargando">Cargando…</div></div></div>
     <button class="btn sec" onclick="APP.abrirCuentas()">← Volver a cuentas</button>
   </div>
@@ -2175,6 +2173,9 @@ APP.guardarCierre = function(){
         otros: (cn.otros||0)
       };
       var tN = d.turno === 'man' ? '☀️ mañana' : '🌙 noche';
+      /* BLINDAJE: guardamos el "recibo" exacto de lo que este cierre metió al
+         Disponible, para que al reabrir se devuelva ESTE número al centavo. */
+      db.ref('caja/turnos/'+APP.turnoActivo+'/aporteDisponible').set(deltas).catch(function(){});
       moverDisponible(deltas, 'cierre', '🔒 Cierre '+(d.fecha||'')+' · '+tN+' · '+(d.apertura.cajera||''))
         .catch(function(e){ toast('⚠️ Cierre guardado, pero el Disponible no se actualizó'); });
       APP._cierreVisto = {clave: APP.turnoActivo, turno: d.turno, fecha: d.fecha, cierre: cierre};
@@ -2599,19 +2600,28 @@ APP.reabrirTurno = function(i){
   var clave = d.fecha+'_'+d.turno;
   var tN = d.turno === 'man' ? '☀️ Mañana' : '🌙 Noche';
   if(!confirm('¿Reabrir el turno '+tN+' del '+d.fecha+'?\n\n• La cajera podrá volver a registrar ingresos y egresos\n• Habrá que hacerle el cierre otra vez\n• El Disponible se revierte AUTOMÁTICAMENTE: se resta lo que este cierre sumó, para no contar doble al cerrar de nuevo\n\nEl cierre actual queda guardado como respaldo.')) return;
+  /* BLINDAJE: si el cierre guardó su recibo (aporteDisponible), devolvemos
+     EXACTAMENTE ese monto. Si es un cierre viejo sin recibo, recalculamos. */
   var ci = d.cierre, cn = ci.conteo||{}, ap = d.apertura||{};
-  var deltasRev = {
-    efcop: -((cn.ef_cop||0) - (ap.fondoCOP||0)),
-    efusd: -((cn.ef_usd||0) - (ap.fondoUSD||0)),
-    efves: -(cn.ef_ves||0),
-    bancol: -((cn.bancol||0)+(cn.nequi||0)),
-    zelle: -(cn.zelle||0),
-    bs: -(cn.bs||0),
-    otros: -(cn.otros||0)
-  };
+  var aporte = d.aporteDisponible;
+  var deltasRev = {};
+  if(aporte && typeof aporte === 'object'){
+    Object.keys(aporte).forEach(function(k){ deltasRev[k] = -(aporte[k]||0); });
+  } else {
+    deltasRev = {
+      efcop: -((cn.ef_cop||0) - (ap.fondoCOP||0)),
+      efusd: -((cn.ef_usd||0) - (ap.fondoUSD||0)),
+      efves: -(cn.ef_ves||0),
+      bancol: -(cn.bancol||0),
+      zelle: -(cn.zelle||0),
+      bs: -(cn.bs||0),
+      otros: -(cn.otros||0)
+    };
+  }
   var upd = {};
   upd['caja/turnos/'+clave+'/estado'] = 'abierta';
   upd['caja/turnos/'+clave+'/cierre'] = null;
+  upd['caja/turnos/'+clave+'/aporteDisponible'] = null;
   upd['caja/turnos/'+clave+'/reabierto'] = {
     por: APP.user.nombre, ts: Date.now(), cierrePrevio: d.cierre, disponibleRevertido: true
   };
@@ -2737,6 +2747,15 @@ APP.guardarEditCierre = function(){
     ventaAnterior: ci.ventaTurno||0
   });
   db.ref('caja/turnos/'+clave+'/cierre').set(cierreNuevo).then(function(){
+    /* BLINDAJE: actualizar el recibo aporteDisponible con la corrección */
+    db.ref('caja/turnos/'+clave+'/aporteDisponible').once('value').then(function(sn){
+      var prev = sn.val();
+      if(prev && typeof prev === 'object'){
+        var nuevo = {};
+        Object.keys(prev).forEach(function(k){ nuevo[k] = Math.round(((prev[k]||0) + (deltas[k]||0))*100)/100; });
+        db.ref('caja/turnos/'+clave+'/aporteDisponible').set(nuevo).catch(function(){});
+      }
+    }).catch(function(){});
     var hayDelta = Object.keys(deltas).some(function(k){ return Math.abs(deltas[k]) > 0.001; });
     if(!hayDelta) return;
     return moverDisponible(deltas, 'ajuste', '🛠️ Corrección del cierre '+clave+' · '+motivo);
@@ -5605,7 +5624,7 @@ APP.verHistMetodo = function(k){
     h += '<div class="tot-line big"><span>Saldo actual</span><b>'+fmtMon(k, actual)+'</b></div>';
     h += '<div class="tot-line"><span>Suma de sus '+rows.length+' movimientos</span><b>'+fmtMon(k, run)+'</b></div>';
     if(Math.abs(dif) > 0.01){
-      h += '<div class="vacio" style="color:var(--rojo);padding:10px">⚠️ Hay <b>'+fmtMon(k, dif)+'</b> SIN respaldo en movimientos.<br>Usa 🩺 Auditar saldos.</div>';
+      h += '<div class="vacio" style="color:var(--rojo);padding:10px">⚠️ Hay <b>'+fmtMon(k, dif)+'</b> SIN respaldo en movimientos.<br>Usa ✅ Cuadrar saldos para dejarlo exacto.</div>';
     }
     h += chartLineaSVG(rows.map(function(r){ return r.run; }));
     if(rows.length > 1) h += '<div style="font-size:10px;color:var(--gris);margin-top:2px">Evolución del saldo, del movimiento más viejo al más reciente</div>';
@@ -5806,7 +5825,8 @@ APP.aplicarReconstruccion = function(){
 APP.ajustarSaldoReal = function(){
   if(APP.user.rol !== 'admin'){ toast('Solo el admin puede ajustar los saldos'); return; }
   var s = APP.dispS||{};
-  var h = '<div class="sub" style="font-size:12px;color:var(--gris);margin-bottom:10px">Escribe lo que hay REALMENTE en cada método (cuenta el efectivo, revisa el saldo del banco, etc.). Deja igual los que ya estén bien. La app calcula sola la diferencia.</div>';
+  var h = '<div class="nota" style="background:#E8F6F0;border-color:#B8E0CC;color:#0E5F3A;margin-bottom:12px"><b>Así cuadras los saldos:</b><br>1️⃣ Cuenta el efectivo real en la gaveta<br>2️⃣ Revisa el saldo real de Bancolombia, Zelle, Bs<br>3️⃣ Escríbelo abajo — la app calcula la diferencia y cuadra sola</div>';
+  h += '<div class="sub" style="font-size:12px;color:var(--gris);margin-bottom:10px">Deja igual los métodos que ya estén bien. De aquí en adelante, cada cierre y pago se suma y resta solo sobre esta base real.</div>';
   Object.keys(METS_DISP).forEach(function(k){
     var m = METS_DISP[k];
     var actual = Math.round(((s[k]||0))*100)/100;
