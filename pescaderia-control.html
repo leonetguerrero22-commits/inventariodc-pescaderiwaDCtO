@@ -5377,6 +5377,8 @@ APP.kardexProducto = function(id){
       'despacho-revertido':{ic:'↩️', dir:'in', tx:'Despacho revertido'},
       restaurante:{ic:'🍽️', dir:'out', tx:'Salió al restaurante'},
       venta:    {ic:'🛒', dir:'out', tx:'Venta del día'},
+      'venta-editada':{ic:'✏️', dir:'neu', tx:'Venta corregida'},
+      'venta-anulada':{ic:'↩️', dir:'neu', tx:'Venta anulada · devuelta'},
       conteo:   {ic:'✏️', dir:'neu', tx:'Ajuste por conteo'},
       revision: {ic:'📋', dir:'neu', tx:'Revisión física'},
       req:      {ic:'📄', dir:'neu', tx:'Requisición'}
@@ -5501,7 +5503,11 @@ APP.kardexProducto = function(id){
     }
 
     /* ═ timeline movimiento a movimiento (más nuevo primero) ═ */
+    var nCorrecciones = puntos.filter(function(pt){ return pt.m.tipo==='venta-editada' || pt.m.tipo==='venta-anulada'; }).length;
     h += '<div class="lbl" style="margin-top:16px">📜 Movimiento a movimiento · '+puntos.length+'</div>';
+    if(nCorrecciones){
+      h += '<div style="font-size:11px;color:#8A6212;background:#FEF6E7;border:1px solid #F5DCA6;border-radius:10px;padding:8px 10px;margin-bottom:10px">✏️ Hay '+nCorrecciones+' corrección'+(nCorrecciones>1?'es':'')+' en este historial (ventas editadas o anuladas). Quedan marcadas para que se vea todo lo que pasó.</div>';
+    }
     if(puntos.length){
       h += '<div style="font-size:11px;color:var(--gris);margin-bottom:12px">🟢 entra &nbsp; 🔴 sale &nbsp; ⚪ ajuste</div>';
       h += '<div style="position:relative;padding-left:4px">';
@@ -5918,6 +5924,12 @@ APP.guardarEditVenta = function(k){
   upd['ventasPesc/'+k+'/total'] = Math.round((x.ventaUnit||0)*nueva);
   upd['ventasPesc/'+k+'/totalCosto'] = Math.round((x.costoUnit||0)*nueva);
   db.ref().update(upd).then(function(){
+    /* rastro en el historial del producto: quedó constancia de la corrección */
+    db.ref('inventario/movimientos').push({
+      tipo:'venta-editada', prodId: x.prodId,
+      detalle: x.nombre+' · venta corregida de '+fmtQty(x.cant)+' a '+fmtQty(nueva)+' '+x.unidad+(dif>0?' (salió '+fmtQty(dif)+' más)':(dif<0?' (devolvió '+fmtQty(-dif)+')':'')),
+      cant: Math.abs(dif), usuario: APP.user.nombre, ts: Date.now(), fecha: fechaOperativa()
+    });
     log('venta-editada', x.nombre+' · '+fmtQty(x.cant)+'→'+fmtQty(nueva)+' · por '+APP.user.nombre);
     toast('✅ Cantidad actualizada · cava ajustada');
     APP.cerrarModal();
@@ -5993,6 +6005,12 @@ APP.borrarVentaPesc = function(k){
     upd['ventasPesc/'+k] = null;
     if(p) upd['inventario/productos/'+x.prodId+'/almacen'] = Math.round(((p.almacen||0) + (x.cant||0))*100)/100;
     db.ref().update(upd).then(function(){
+      /* rastro en el historial: la venta se anuló y volvió a la cava */
+      db.ref('inventario/movimientos').push({
+        tipo:'venta-anulada', prodId: x.prodId,
+        detalle: x.nombre+' · venta anulada · '+fmtQty(x.cant)+' '+x.unidad+' devuelto a la cava',
+        cant: x.cant||0, usuario: APP.user.nombre, ts: Date.now(), fecha: fechaOperativa()
+      });
       log('venta-borrada', x.nombre+' '+fmtQty(x.cant)+' · por '+APP.user.nombre);
       toast('🗑️ Venta eliminada · devuelta a la cava');
       cargarVentasHoy();
