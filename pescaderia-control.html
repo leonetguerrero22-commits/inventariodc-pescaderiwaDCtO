@@ -411,18 +411,18 @@ select.inp{appearance:none;-webkit-appearance:none}
       <div class="print-box" id="ci-printbox" onclick="APP.pedirFoto('cierre')">
         <div class="th" id="ci-print-th">📸</div>
         <div style="flex:1">
-          <b style="font-size:13px" id="ci-print-tx">Foto de las anotaciones (opcional)</b>
+          <b style="font-size:13px" id="ci-print-tx">Adjuntar print del POS</b>
           <div style="font-size:11px;color:var(--gris)" id="ci-print-sub">Toca para tomar foto o elegir de galería</div>
         </div>
       </div>
-      <div class="fila-inp" style="margin:12px 0 0"><div class="tag">Venta anotada (opcional)</div><input class="inp" id="c-pos" type="text" inputmode="numeric" placeholder="0" style="text-align:right" oninput="APP.fmtMiles(this);APP.calcCierre()"></div>
-      <div style="font-size:10px;color:var(--gris);margin-top:5px">Si llevaron anotadas las ventas del día, ponlas aquí para comparar. Si no, deja 0 y se firma el arqueo directo.</div>
+      <div class="fila-inp" style="margin:12px 0 0"><div class="tag">Total POS (COP)</div><input class="inp" id="c-pos" type="text" inputmode="numeric" placeholder="0" style="text-align:right" oninput="APP.fmtMiles(this);APP.calcCierre()"></div>
+      <button class="btn sec" id="btn-ocr" style="margin-top:10px" onclick="APP.leerTotalPrint()">🔍 Leer total del print automáticamente</button>
+      <div style="font-size:10px;color:var(--gris);margin-top:5px">Copia el total directo del print del POS. Toca el lector para leerlo automáticamente, o escríbelo a mano.</div>
       <div id="pos-prev-wrap" style="display:none">
         <div class="fila-inp" style="margin:10px 0 0"><div class="tag">− Corte mañana</div><input class="inp" id="c-posprev" type="text" inputmode="numeric" placeholder="0" style="text-align:right" oninput="APP.fmtMiles(this);APP.calcCierre()"></div>
         <div style="font-size:10px;color:var(--gris);margin-top:5px">El POS acumula todo el día: se descuenta lo ya cortado en la mañana.</div>
         <div class="tot-line big" style="padding-top:8px"><span>= POS de este turno</span><b id="pos-neto">$0</b></div>
       </div>
-      <button class="btn sec" id="btn-ocr" style="display:none" onclick="APP.leerTotalPrint()">🔍</button>
     </div>
     <div class="card">
       <div class="lbl">Resumen</div>
@@ -597,6 +597,8 @@ select.inp{appearance:none;-webkit-appearance:none}
       <div class="lbl">Lo vendido hoy</div>
       <div id="vp-hoy"><div class="vacio">Aún sin ventas registradas hoy</div></div>
       <div class="tot-line big" style="margin-top:8px"><span>Total estimado del día</span><b id="vp-total" style="color:var(--ok)">$0</b></div>
+      <button class="btn verde" id="vp-cerrar-btn" style="margin-top:12px;display:none" onclick="APP.confirmarVentaDia()">✅ Confirmar venta e ir al cierre de caja</button>
+      <div style="font-size:10px;color:var(--gris);margin-top:5px;text-align:center">Cada venta ya quedó guardada arriba. Este botón te lleva al cierre para cuadrar la caja con esta venta.</div>
     </div>
     <div class="lbl" style="padding:0 2px">Toca lo que se vendió</div>
     <div class="busq-wrap"><span class="ic">🔍</span><input class="inp" id="vp-busq" type="text" placeholder="Buscar producto para vender…" oninput="APP.buscarVenta(this.value)"></div>
@@ -1577,12 +1579,14 @@ APP.modalMov = function(tipo){
     });
     h += '</div>';
     h += '<div class="flabel">Categoría</div><select class="inp" id="mv-cat"></select>';
+    h += '<div class="flabel">🔗 ¿Es pago o abono a una factura por pagar? (opcional)</div><select class="inp" id="mv-cta"><option value="">No · gasto normal</option></select>';
+    h += '<div class="sub" id="mv-cta-info" style="font-size:11px;color:var(--gris);margin-top:2px"></div>';
     h += '<div class="flabel">¿Quién autoriza? (opcional)</div><input class="inp" id="mv-autoriza" type="text" placeholder="Ej: Wilder">';
   }
   h += '<button class="btn '+(esIn?'verde':'')+'" id="mv-guardar" style="margin-top:16px'+(esIn?'':';background:var(--rojo);box-shadow:0 4px 14px rgba(192,57,43,.25)')+'" onclick="APP.guardarMov(\''+tipo+'\')">'+(esIn?'＋ Registrar ingreso':'－ Registrar egreso')+'</button>';
   h += '<button class="btn sec" onclick="APP.cerrarModal()">Cancelar</button>';
   abrirModal(esIn ? '＋ Ingreso a caja' : '－ Egreso de caja', h);
-  if(!esIn){ APP.pickTipoGasto('compras'); }
+  if(!esIn){ APP.pickTipoGasto('compras'); llenarCtasEgreso(); }
   if(esIn){ llenarCtasCobro(); }
 };
 APP._tipoGastoSel = 'compras';
@@ -1745,8 +1749,10 @@ APP.guardarMov = function(tipo){
   if(tipo === 'egreso'){ if(cat) mov.categoria = cat; if(tGasto) mov.tipoGasto = tGasto; }
   if(autoriza.trim()) mov.autoriza = autoriza.trim();
   var ctaCobroId = tipo === 'ingreso' ? (((document.getElementById('mv-ctacob')||{}).value)||'') : '';
+  var ctaPagoId = tipo === 'egreso' ? (((document.getElementById('mv-cta')||{}).value)||'') : '';
   db.ref('caja/turnos/'+APP.turnoActivo+'/movimientos').push(mov).then(function(){
     if(ctaCobroId) registrarAbonoCobroDesdeCaja(ctaCobroId, monto, APP._movMetodo);
+    if(ctaPagoId) registrarAbonoPagoDesdeCaja(ctaPagoId, monto);
     var montoTx = mov.moneda === 'USD' ? '$'+monto+' USD' : (mov.moneda === 'VES' ? 'Bs '+monto : fmtCOP(monto));
     log(tipo, montoTx+' · '+motivo+(ref?' · ref '+ref:'')+' ('+APP.turnoActivo+')');
     toast(tipo==='ingreso' ? '✅ Ingreso registrado' : '✅ Egreso registrado');
@@ -1813,6 +1819,50 @@ function registrarAbonoCobroDesdeCaja(id, monto, metodoCaja){
     log('abono', 'cobrar · '+c.nombre+' · '+fmtMon(k, monto)+' · desde caja del turno');
     toast(nuevoAbonado >= (c.monto||0) ? '🎉 '+c.nombre+' pagó por completo' : '✅ Abono de '+c.nombre+' · saldo '+fmtCOP(Math.max(0, (c.monto||0)-nuevoAbonado)));
   }).catch(function(){ toast('⚠️ Ingreso guardado, pero el abono al crédito no se registró'); });
+}
+
+/* ═══ PAGO A FACTURA POR PAGAR DESDE EL EGRESO DE CAJA ═══
+   El dinero sale de la gaveta del turno, así que NO toca el Disponible:
+   el cierre lo descuenta solo al contar menos efectivo. El egreso es en COP. */
+function llenarCtasEgreso(){
+  var sel = document.getElementById('mv-cta');
+  if(!sel) return;
+  var ids = Object.keys(APP.ctas||{}).filter(function(id){
+    var c = APP.ctas[id];
+    return c && c.tipo === 'pagar' && c.estado !== 'pagada';
+  }).sort(function(a,b){ return (APP.ctas[b].creada||0) - (APP.ctas[a].creada||0); });
+  ids.forEach(function(id){
+    var c = APP.ctas[id];
+    var o = document.createElement('option');
+    o.value = id;
+    o.textContent = c.nombre+' · debe '+fmtCOP(Math.max(0, (c.monto||0)-(c.abonado||0)));
+    sel.appendChild(o);
+  });
+  sel.onchange = function(){
+    var info = document.getElementById('mv-cta-info');
+    if(!info) return;
+    var c = APP.ctas[sel.value];
+    info.textContent = c ? 'El monto del egreso se abonará a esta factura. Si cubre todo el saldo, queda PAGADA.' : '';
+  };
+}
+function registrarAbonoPagoDesdeCaja(id, montoCOP){
+  var c = APP.ctas[id];
+  if(!c) return;
+  var abono = {
+    monto: montoCOP, moneda: 'COP', montoCOP: montoCOP, tasa: 1,
+    metodo: 'efcop', origen: 'caja',
+    nota: 'Pagado con efectivo de la caja del turno',
+    ts: Date.now(), fecha: fechaOperativa(), usuario: APP.user.nombre
+  };
+  var nuevoAbonado = (c.abonado||0) + montoCOP;
+  var upd = {};
+  upd['cuentas/'+id+'/abonos/'+db.ref('cuentas/'+id+'/abonos').push().key] = abono;
+  upd['cuentas/'+id+'/abonado'] = nuevoAbonado;
+  if(nuevoAbonado >= (c.monto||0)) upd['cuentas/'+id+'/estado'] = 'pagada';
+  db.ref().update(upd).then(function(){
+    log('abono', 'pagar · '+c.nombre+' · '+fmtCOP(montoCOP)+' · desde caja del turno');
+    toast(nuevoAbonado >= (c.monto||0) ? '🎉 Factura de '+c.nombre+' pagada por completo' : '✅ Abono a '+c.nombre+' · saldo '+fmtCOP(Math.max(0, (c.monto||0)-nuevoAbonado)));
+  }).catch(function(){ toast('⚠️ Egreso guardado, pero el abono a la factura no se registró'); });
 }
 
 /* ── Editar / eliminar movimiento ── */
@@ -3428,8 +3478,21 @@ function renderAlmacen(){
     hp += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:13px">📨 Requisición Nº '+r.numero+' · '+escapa(r.pidio)+'</b><span class="estado pend">PENDIENTE</span></div>';
     hp += '<div style="font-size:12px;color:var(--gris)">'+lista+'</div>';
     hp += '<button class="btn" style="margin-top:12px;background:var(--noche);box-shadow:0 4px 14px rgba(59,91,165,.25)" onclick="APP.despachar(\''+k+'\')">✅ Despachar (almacén → línea)</button>';
+    if(APP.user.rol === 'admin' || APP.user.rol === 'supervisor'){
+      hp += '<button class="btn sec" style="margin-top:8px;color:var(--rojo);border-color:#F5C6C0" onclick="APP.cancelarReq(\''+k+'\')">✖️ Cancelar requisición</button>';
+    }
     hp += '</div>';
   });
+  /* requisiciones despachadas recientes (últimas 3) — para poder revertir si fue por error */
+  if(APP.user.rol === 'admin' || APP.user.rol === 'supervisor'){
+    var desp = Object.keys(APP.reqs||{}).filter(function(k){ return APP.reqs[k].estado === 'despachada'; })
+      .sort(function(a,b){ return (APP.reqs[b].tsDespacho||0)-(APP.reqs[a].tsDespacho||0); }).slice(0,3);
+    desp.forEach(function(k){
+      var r = APP.reqs[k];
+      hp += '<div class="card" style="border-color:var(--linea)"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:12px;color:var(--gris)">✅ Req. Nº '+r.numero+' despachada'+(r.despachadoPor?' · '+escapa(r.despachadoPor):'')+'</b>';
+      hp += '<button class="btn sec" style="width:auto;margin:0;padding:6px 12px;font-size:11px;color:var(--rojo);border-color:#F5C6C0" onclick="APP.revertirDespacho(\''+k+'\')">↩️ Revertir</button></div></div>';
+    });
+  }
   document.getElementById('al-pendientes').innerHTML = hp;
   /* valores de inventario (costos) */
   var valAlm = 0, valLin = 0, sinCosto = 0;
@@ -3542,6 +3605,49 @@ APP.despachar = function(k){
     APP._despachando = false;
     toast('⚠️ No se despachó: '+String(e && e.message || e).slice(0,50));
   });
+};
+
+/* Cancelar una requisición PENDIENTE (aún no despachada · no toca stock) */
+APP.cancelarReq = function(k){
+  var r = APP.reqs[k];
+  if(!r || r.estado !== 'pendiente') return;
+  if(!(APP.user.rol === 'admin' || APP.user.rol === 'supervisor')){ toast('Solo admin/supervisor'); return; }
+  if(!confirm('¿Cancelar la requisición Nº '+r.numero+'?\nNo se despachó nada, así que el inventario NO se toca. La requisición se elimina.')) return;
+  db.ref('inventario/requisiciones/'+k).remove().then(function(){
+    log('requisicion', 'Nº '+r.numero+' CANCELADA por '+APP.user.nombre);
+    toast('✖️ Requisición Nº '+r.numero+' cancelada');
+  }).catch(function(e){ toast('⚠️ No se pudo: '+String(e && e.message||e).slice(0,50)); });
+};
+
+/* Revertir un despacho YA hecho: devuelve de línea a cava y reabre la requisición */
+APP.revertirDespacho = function(k){
+  var r = APP.reqs[k];
+  if(!r || r.estado !== 'despachada'){ toast('Esa requisición no está despachada'); return; }
+  if(!(APP.user.rol === 'admin' || APP.user.rol === 'supervisor')){ toast('Solo admin/supervisor'); return; }
+  if(!confirm('¿Revertir el despacho de la requisición Nº '+r.numero+'?\nLa línea DEVUELVE y el almacén RECIBE de vuelta lo despachado.\nQueda como pendiente otra vez.')) return;
+  var upd = {};
+  var resumen = [];
+  Object.keys(r.items||{}).forEach(function(pid){
+    var it = r.items[pid];
+    var p = APP.prods[pid];
+    if(!p) return;
+    upd['inventario/productos/'+pid+'/almacen'] = (p.almacen||0) + it.cant;
+    upd['inventario/productos/'+pid+'/linea'] = Math.max(0, (p.linea||0) - it.cant);
+    resumen.push(it.nombre+' '+fmtQty(it.cant)+' '+it.unidad);
+  });
+  upd['inventario/requisiciones/'+k+'/estado'] = 'pendiente';
+  upd['inventario/requisiciones/'+k+'/despachadoPor'] = null;
+  upd['inventario/requisiciones/'+k+'/tsDespacho'] = null;
+  upd['inventario/requisiciones/'+k+'/revertidoPor'] = APP.user.nombre;
+  upd['inventario/requisiciones/'+k+'/tsReversion'] = Date.now();
+  db.ref().update(upd).then(function(){
+    db.ref('inventario/movimientos').push({
+      tipo:'despacho-revertido', prodIds: Object.keys(r.items||{}), detalle:'↩️ Revertido despacho Req. Nº '+r.numero+': '+resumen.join(', '),
+      usuario: APP.user.nombre, ts: Date.now(), fecha: fechaOperativa()
+    });
+    log('despacho-revertido', 'Req. Nº '+r.numero+' por '+APP.user.nombre);
+    toast('↩️ Despacho revertido · vuelve a pendiente');
+  }).catch(function(e){ toast('⚠️ No se pudo: '+String(e && e.message||e).slice(0,50)); });
 };
 
 /* ── COMPRA / MERMA / PRODUCTO ── */
@@ -5251,7 +5357,7 @@ APP.descargarPlanilla = function(){
 APP.kardexProducto = function(id){
   var p = APP.prods[id];
   if(!p) return;
-  db.ref('inventario/movimientos').orderByKey().limitToLast(200).once('value').then(function(snap){
+  db.ref('inventario/movimientos').orderByKey().limitToLast(300).once('value').then(function(snap){
     var movs = snap.val()||{};
     var lista = [];
     Object.keys(movs).forEach(function(k){
@@ -5261,35 +5367,131 @@ APP.kardexProducto = function(id){
         || ((m.detalle||'').indexOf(p.nombre) >= 0);
       if(esDeEste) lista.push(m);
     });
-    lista.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
-    lista = lista.slice(0, 40);
-    /* clasificar cada movimiento: entra (+), sale (−) o neutro */
+    lista.sort(function(a,b){ return (a.ts||0)-(b.ts||0); }); /* viejo → nuevo */
+
+    /* clasificar cada movimiento y estimar la cantidad que movió */
     var TIPOMOV = {
       compra:   {ic:'🛒', dir:'in',  tx:'Entró mercancía'},
       merma:    {ic:'📉', dir:'out', tx:'Merma / pérdida'},
       despacho: {ic:'📦', dir:'out', tx:'Despacho a línea'},
+      'despacho-revertido':{ic:'↩️', dir:'in', tx:'Despacho revertido'},
       restaurante:{ic:'🍽️', dir:'out', tx:'Salió al restaurante'},
+      venta:    {ic:'🛒', dir:'out', tx:'Venta del día'},
       conteo:   {ic:'✏️', dir:'neu', tx:'Ajuste por conteo'},
       revision: {ic:'📋', dir:'neu', tx:'Revisión física'},
       req:      {ic:'📄', dir:'neu', tx:'Requisición'}
     };
+    /* saca un número de cantidad del movimiento (campo directo o del detalle) */
+    function cantDe(m){
+      if(typeof m.cant === 'number') return m.cant;
+      if(m.items && m.items[id] && typeof m.items[id].cant === 'number') return m.items[id].cant;
+      var mm = /([\d.,]+)\s*(kg|gr|und|paq|lt|gal|caja|docena|bolsa)/i.exec(m.detalle||'');
+      if(mm) return parseFloat(mm[1].replace(/\./g,'').replace(',','.'))||0;
+      return 0;
+    }
+
     var stockAhora = (p.almacen||0) + (p.linea||0);
+    /* reconstruir el stock hacia atrás: partimos de HOY y deshacemos cada mov */
+    var serie = []; /* {ts, stock} del más viejo al más nuevo */
+    var totalIn = 0, totalOut = 0;
+    var puntos = lista.map(function(m){
+      var info = TIPOMOV[m.tipo] || {dir:'neu'};
+      var cant = cantDe(m);
+      var delta = info.dir==='in' ? cant : (info.dir==='out' ? -cant : 0);
+      if(delta > 0) totalIn += delta; else if(delta < 0) totalOut += -delta;
+      return {ts:m.ts||0, delta:delta, m:m, info:info, cant:cant};
+    });
+    /* stock después de cada movimiento, caminando hacia atrás desde stockAhora */
+    var acumulado = stockAhora;
+    for(var i = puntos.length-1; i >= 0; i--){
+      puntos[i].stockDespues = acumulado;
+      acumulado = Math.round((acumulado - puntos[i].delta)*100)/100;
+      puntos[i].stockAntes = acumulado;
+    }
+
+    /* ═ DETECCIÓN DE FALLOS ═ */
+    puntos.forEach(function(pt){
+      pt.alerta = null;
+      /* 1) merma alta: más del 20% del stock que había antes */
+      if(pt.m.tipo === 'merma' && pt.stockAntes > 0 && pt.cant > pt.stockAntes*0.2){
+        pt.alerta = 'Merma alta: '+fmtQty(pt.cant)+' '+escapa(p.unidad)+' ('+Math.round(pt.cant/pt.stockAntes*100)+'% del stock)';
+      }
+      /* 2) bajada por ajuste/conteo que esconde una pérdida (stock bajó sin venta/despacho/merma) */
+      if((pt.m.tipo === 'conteo' || pt.m.tipo === 'revision') && pt.delta === 0){
+        /* los ajustes con delta 0 no cuentan; pero si el detalle indica una baja fuerte, avisar */
+      }
+    });
+    /* 2b) detectar caídas bruscas entre puntos consecutivos sin movimiento de salida que las explique */
+    var alertasGlobales = [];
+    puntos.forEach(function(pt){
+      if(pt.alerta) alertasGlobales.push({fecha:pt.m.fecha, txt:pt.alerta});
+    });
+
     var valCosto = stockAhora * (p.costo||0);
     var valVenta = stockAhora * (p.venta||0);
-    var gananciaU = (p.venta||0) - (p.costo||0);
-    var margen = (p.venta||0) > 0 ? Math.round(gananciaU/(p.venta||0)*100) : 0;
+    var margen = (p.venta||0) > 0 ? Math.round(((p.venta||0)-(p.costo||0))/(p.venta||0)*100) : 0;
+
     var h = '';
-    /* ═ tarjeta de valor actual ═ */
+    /* ═ tarjeta stock actual ═ */
     h += '<div class="card" style="background:linear-gradient(160deg,var(--mar),var(--mar-2));color:#fff;border:none">';
-    h += '<div style="font-size:11px;opacity:.8;text-transform:uppercase;letter-spacing:1px">Stock ahora</div>';
-    h += '<div style="font-size:22px;font-weight:800">'+fmtQty(stockAhora)+' '+escapa(p.unidad)+'</div>';
-    h += '<div style="display:flex;gap:14px;margin-top:8px;font-size:12px;opacity:.92">';
-    h += '<span>🐟 Cava: <b>'+fmtQty(p.almacen||0)+'</b></span><span>🍳 Línea: <b>'+fmtQty(p.linea||0)+'</b></span>';
-    h += '</div></div>';
+    h += '<div style="font-size:10px;opacity:.75;text-transform:uppercase;letter-spacing:1px">Stock ahora</div>';
+    h += '<div style="font-size:26px;font-weight:800;letter-spacing:-.03em">'+fmtQty(stockAhora)+' '+escapa(p.unidad)+'</div>';
+    h += '<div style="display:flex;gap:16px;margin-top:6px;font-size:12px;opacity:.9"><span>🐟 Cava: <b>'+fmtQty(p.almacen||0)+'</b></span><span>🍳 Línea: <b>'+fmtQty(p.linea||0)+'</b></span></div>';
+    h += '</div>';
+
+    /* ═ GRÁFICA del stock en el tiempo ═ */
+    if(puntos.length >= 2){
+      var vals = puntos.map(function(pt){ return pt.stockDespues; });
+      var maxV = Math.max.apply(null, vals.concat([stockAhora]));
+      var minV = Math.min.apply(null, vals.concat([0]));
+      if(maxV === minV) maxV = minV + 1;
+      var W = 320, H = 110, pad = 8;
+      var pts = puntos.map(function(pt, xi){
+        var x = pad + (xi/(puntos.length-1))*(W-2*pad);
+        var y = pad + (1 - (pt.stockDespues - minV)/(maxV - minV))*(H-2*pad);
+        return Math.round(x*10)/10+','+Math.round(y*10)/10;
+      });
+      var poly = pts.join(' ');
+      var area = poly+' '+(W-pad)+','+(H-pad)+' '+pad+','+(H-pad);
+      h += '<div class="card"><div class="lbl">📉 Cómo se movió el stock</div>';
+      h += '<svg viewBox="0 0 '+W+' '+(H+6)+'" style="width:100%;height:auto">';
+      h += '<defs><linearGradient id="kg-'+id.slice(-4)+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--coral)" stop-opacity="0.22"/><stop offset="100%" stop-color="var(--coral)" stop-opacity="0"/></linearGradient></defs>';
+      h += '<polygon points="'+area+'" fill="url(#kg-'+id.slice(-4)+')"/>';
+      h += '<polyline points="'+poly+'" fill="none" stroke="var(--coral)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>';
+      /* puntos de color según entra/sale, y rojo grande si hay alerta */
+      puntos.forEach(function(pt, xi){
+        var coord = pts[xi].split(',');
+        var col = pt.info.dir==='in' ? 'var(--ok)' : (pt.info.dir==='out' ? 'var(--rojo)' : 'var(--gris)');
+        var r = pt.alerta ? 5 : 3;
+        h += '<circle cx="'+coord[0]+'" cy="'+coord[1]+'" r="'+r+'" fill="'+col+'"'+(pt.alerta?' stroke="#fff" stroke-width="1.5"':'')+'/>';
+      });
+      h += '</svg>';
+      var f0 = puntos[0].m.fecha||'', f1 = puntos[puntos.length-1].m.fecha||'hoy';
+      h += '<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--gris);margin-top:2px"><span>'+escapa(f0)+'</span><span>'+escapa(f1)+'</span></div>';
+      h += '</div>';
+    }
+
+    /* ═ ALERTAS de posibles fallos ═ */
+    if(alertasGlobales.length){
+      h += '<div style="background:#FEF3E2;border:1px solid #F5C97A;border-radius:14px;padding:12px 14px;margin-bottom:14px">';
+      h += '<div style="display:flex;gap:10px;align-items:flex-start"><span style="font-size:18px">🚨</span><div style="flex:1">';
+      h += '<div style="font-size:12.5px;font-weight:800;color:#B45309">'+alertasGlobales.length+' posible'+(alertasGlobales.length>1?'s':'')+' fallo'+(alertasGlobales.length>1?'s':'')+' detectado'+(alertasGlobales.length>1?'s':'')+'</div>';
+      alertasGlobales.slice(0,4).forEach(function(a){
+        h += '<div style="font-size:11.5px;color:#8A6212;margin-top:4px;line-height:1.4">• '+escapa(a.fecha||'')+': '+a.txt+'</div>';
+      });
+      h += '</div></div></div>';
+    }
+
+    /* ═ resumen entró / salió ═ */
+    h += '<div style="display:flex;gap:10px;margin-bottom:14px">';
+    h += '<div style="flex:1;background:var(--card);border:1px solid var(--linea);border-radius:14px;padding:12px;text-align:center"><div style="font-size:9px;font-weight:700;color:var(--gris);text-transform:uppercase;letter-spacing:.5px">Entró</div><div style="font-size:17px;font-weight:800;color:var(--ok);letter-spacing:-.02em">+'+fmtQty(totalIn)+'</div></div>';
+    h += '<div style="flex:1;background:var(--card);border:1px solid var(--linea);border-radius:14px;padding:12px;text-align:center"><div style="font-size:9px;font-weight:700;color:var(--gris);text-transform:uppercase;letter-spacing:.5px">Salió</div><div style="font-size:17px;font-weight:800;color:var(--rojo);letter-spacing:-.02em">−'+fmtQty(totalOut)+'</div></div>';
+    h += '</div>';
+
+    /* ═ valores ═ */
     h += '<div class="tot-line"><span>💵 Valor a costo</span><b>'+fmtCOP(valCosto)+'</b></div>';
     h += '<div class="tot-line"><span>🏷️ Valor de venta</span><b>'+fmtCOP(valVenta)+'</b></div>';
     h += '<div class="tot-line"><span>📈 Ganancia si se vende</span><b style="color:var(--ok)">'+fmtCOP(valVenta-valCosto)+' ('+margen+'%)</b></div>';
-    h += '<div class="tot-line"><span>Costo · Venta por '+escapa(p.unidad)+'</span><b>'+fmtCOP(p.costo||0)+' · '+fmtCOP(p.venta||0)+'</b></div>';
     var hist = p.precios||[];
     if(hist.length >= 2){
       var pri = hist[0].c, ult = hist[hist.length-1].c;
@@ -5297,26 +5499,33 @@ APP.kardexProducto = function(id){
       var flc = pct>0?'var(--rojo)':(pct<0?'var(--ok)':'var(--gris)');
       h += '<div class="tot-line"><span>📊 Evolución del costo</span><b style="color:'+flc+'">'+fmtCOP(pri)+' → '+fmtCOP(ult)+' ('+(pct>0?'+':'')+pct+'%)</b></div>';
     }
-    /* ═ línea de tiempo visual ═ */
-    h += '<div class="lbl" style="margin-top:16px">📜 Historial · '+lista.length+' movimiento'+(lista.length!==1?'s':'')+'</div>';
-    if(lista.length){
-      h += '<div style="font-size:11px;color:var(--gris);margin-bottom:10px">🟢 entra &nbsp; 🔴 sale &nbsp; ⚪ ajuste</div>';
-      h += '<div style="position:relative;padding-left:6px">';
-      lista.forEach(function(m, idx){
-        var info = TIPOMOV[m.tipo] || {ic:'•', dir:'neu', tx:m.tipo||''};
+
+    /* ═ timeline movimiento a movimiento (más nuevo primero) ═ */
+    h += '<div class="lbl" style="margin-top:16px">📜 Movimiento a movimiento · '+puntos.length+'</div>';
+    if(puntos.length){
+      h += '<div style="font-size:11px;color:var(--gris);margin-bottom:12px">🟢 entra &nbsp; 🔴 sale &nbsp; ⚪ ajuste</div>';
+      h += '<div style="position:relative;padding-left:4px">';
+      var rev = puntos.slice().reverse();
+      rev.forEach(function(pt, idx){
+        var info = pt.info;
         var col = info.dir==='in' ? 'var(--ok)' : (info.dir==='out' ? 'var(--rojo)' : 'var(--gris)');
-        var punto = info.dir==='in' ? '🟢' : (info.dir==='out' ? '🔴' : '⚪');
         var flecha = info.dir==='in' ? '↑' : (info.dir==='out' ? '↓' : '•');
-        var esUlt = idx === lista.length-1;
-        h += '<div style="position:relative;padding:0 0 '+(esUlt?'0':'14px')+' 22px">';
-        /* línea vertical conectora */
-        if(!esUlt) h += '<div style="position:absolute;left:7px;top:16px;bottom:0;width:2px;background:var(--linea)"></div>';
-        /* punto de color */
-        h += '<div style="position:absolute;left:0;top:1px;width:16px;height:16px;border-radius:50%;background:'+col+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:800">'+flecha+'</div>';
-        h += '<div style="background:var(--card);border:1px solid var(--linea);border-left:3px solid '+col+';border-radius:10px;padding:9px 11px">';
-        h += '<div style="font-size:11px;font-weight:800;color:'+col+';text-transform:uppercase;letter-spacing:.3px">'+info.ic+' '+info.tx+'</div>';
-        h += '<div style="font-size:12.5px;font-weight:600;margin-top:3px;line-height:1.4">'+escapa(m.detalle||'')+'</div>';
-        h += '<div style="font-size:10px;color:var(--gris);margin-top:4px">'+escapa(fechaLegible ? fechaLegible(m.fecha) : (m.fecha||''))+' · '+horaStr(m.ts)+' · '+escapa(m.usuario||'')+'</div>';
+        var esUlt = idx === rev.length-1;
+        var tieneAlerta = !!pt.alerta;
+        var bg = tieneAlerta ? '#FFF7F5' : 'var(--card)';
+        var bd = tieneAlerta ? '#F5C6C0' : 'var(--linea)';
+        var colBorde = tieneAlerta ? 'var(--rojo)' : col;
+        h += '<div style="position:relative;padding:0 0 '+(esUlt?'0':'14px')+' 24px">';
+        if(!esUlt) h += '<div style="position:absolute;left:8px;top:18px;bottom:0;width:2px;background:var(--linea)"></div>';
+        h += '<div style="position:absolute;left:0;top:2px;width:18px;height:18px;border-radius:50%;background:'+col+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:800">'+flecha+'</div>';
+        h += '<div style="background:'+bg+';border:1px solid '+bd+';border-left:3px solid '+colBorde+';border-radius:11px;padding:10px 12px">';
+        if(tieneAlerta){
+          h += '<div style="font-size:11px;font-weight:800;color:var(--rojo);text-transform:uppercase;letter-spacing:.3px">🚨 '+escapa(pt.alerta)+'</div>';
+        } else {
+          h += '<div style="font-size:11px;font-weight:800;color:'+col+';text-transform:uppercase;letter-spacing:.3px">'+info.ic+' '+info.tx+'</div>';
+        }
+        h += '<div style="font-size:12.5px;font-weight:600;margin-top:3px;line-height:1.4">'+escapa(pt.m.detalle||'')+(pt.cant?' · quedó en '+fmtQty(pt.stockDespues)+' '+escapa(p.unidad):'')+'</div>';
+        h += '<div style="font-size:10px;color:var(--gris);margin-top:4px">'+escapa(fechaLegible ? fechaLegible(pt.m.fecha) : (pt.m.fecha||''))+' · '+horaStr(pt.m.ts)+' · '+escapa(pt.m.usuario||'')+'</div>';
         h += '</div></div>';
       });
       h += '</div>';
@@ -5641,6 +5850,8 @@ function cargarVentasHoy(){
     });
     document.getElementById('vp-hoy').innerHTML = h || '<div class="vacio">Aún sin ventas registradas hoy</div>';
     document.getElementById('vp-total').textContent = fmtCOP(total);
+    var btnCerrar = document.getElementById('vp-cerrar-btn');
+    if(btnCerrar) btnCerrar.style.display = nItems > 0 ? 'block' : 'none';
     /* barra fija tipo RePOS */
     var barra = document.getElementById('vp-barra');
     if(barra){
@@ -5654,6 +5865,17 @@ function cargarVentasHoy(){
     }
   }).catch(function(){});
 }
+APP.confirmarVentaDia = function(){
+  var t = document.getElementById('vp-total');
+  var totalTx = t ? t.textContent : '';
+  if(!confirm('La venta del día ('+totalTx+') ya está registrada.\n\n¿Ir ahora al cierre de caja para cuadrar el turno?')) return;
+  if(APP.turnoActivo && APP.turnoData && APP.turnoData.estado === 'abierta'){
+    APP.irCierre();
+  } else {
+    toast('Abre o entra a la caja para hacer el cierre');
+    APP.goScreen('s-caja');
+  }
+};
 APP.irAResumenVenta = function(){
   var card = document.getElementById('vp-hoy');
   if(card && card.scrollIntoView) card.scrollIntoView({behavior:'smooth', block:'center'});
