@@ -687,6 +687,7 @@ select.inp{appearance:none;-webkit-appearance:none}
       <button class="pag" id="tab-pag" onclick="APP.ctaTab('pagar')">📤 Por pagar</button>
     </div>
     <div class="cats" id="ct-filtros"></div>
+    <div class="busq-wrap"><span class="ic">🔍</span><input class="inp" id="ct-busq" type="text" placeholder="Buscar por nombre o número de factura…" oninput="APP.buscarCta(this.value)"></div>
     <div id="ct-lista"></div>
     <button class="btn" id="btn-nueva-cta" onclick="APP.modalCuenta(null)">＋ Nueva cuenta</button>
     <button class="btn sec" onclick="APP.resumenCtasMes()">📊 Resumen de facturas del mes</button>
@@ -1552,6 +1553,10 @@ APP.modalMov = function(tipo){
   h += '<div id="mv-monto-wrap"><div class="flabel" id="mv-monto-lbl">Monto (COP)</div><input class="inp" id="mv-monto" type="text" inputmode="numeric" placeholder="0" oninput="APP.fmtMiles(this)">';
   h += '<div class="conv" id="mv-conv" style="margin-top:4px"></div></div>';
   h += '<div class="flabel">'+(esIn?'Motivo':'¿Qué es? (producto o concepto)')+'</div><input class="inp" id="mv-motivo" type="text" placeholder="'+(esIn?'Ej: pago mesa 4, cambio…':'Ej: aguacates, hielo, mototaxi…')+'" oninput="APP.calcCompraEgreso && APP.calcCompraEgreso()">';
+  if(esIn){
+    h += '<div class="flabel">🔗 ¿Es abono de un cliente que nos debe? (opcional)</div><select class="inp" id="mv-ctacob"><option value="">No · ingreso normal</option></select>';
+    h += '<div class="sub" id="mv-ctacob-info" style="font-size:11px;color:var(--gris);margin-top:2px"></div>';
+  }
   if(!esIn){
     /* compras detalladas: cantidad + unidad + precio → el total se calcula solo */
     h += '<div id="mv-compra-wrap">';
@@ -1578,6 +1583,7 @@ APP.modalMov = function(tipo){
   h += '<button class="btn sec" onclick="APP.cerrarModal()">Cancelar</button>';
   abrirModal(esIn ? '＋ Ingreso a caja' : '－ Egreso de caja', h);
   if(!esIn){ APP.pickTipoGasto('compras'); }
+  if(esIn){ llenarCtasCobro(); }
 };
 APP._tipoGastoSel = 'compras';
 function llenarCategorias(selectId, tipo, seleccionada){
@@ -1738,7 +1744,9 @@ APP.guardarMov = function(tipo){
   }
   if(tipo === 'egreso'){ if(cat) mov.categoria = cat; if(tGasto) mov.tipoGasto = tGasto; }
   if(autoriza.trim()) mov.autoriza = autoriza.trim();
+  var ctaCobroId = tipo === 'ingreso' ? (((document.getElementById('mv-ctacob')||{}).value)||'') : '';
   db.ref('caja/turnos/'+APP.turnoActivo+'/movimientos').push(mov).then(function(){
+    if(ctaCobroId) registrarAbonoCobroDesdeCaja(ctaCobroId, monto, APP._movMetodo);
     var montoTx = mov.moneda === 'USD' ? '$'+monto+' USD' : (mov.moneda === 'VES' ? 'Bs '+monto : fmtCOP(monto));
     log(tipo, montoTx+' · '+motivo+(ref?' · ref '+ref:'')+' ('+APP.turnoActivo+')');
     toast(tipo==='ingreso' ? '✅ Ingreso registrado' : '✅ Egreso registrado');
@@ -1750,6 +1758,62 @@ APP.guardarMov = function(tipo){
     toast('⚠️ No se pudo guardar: '+String(e && e.message || e).slice(0,50));
   });
 };
+
+/* ═══ ABONO DE CLIENTE DESDE EL INGRESO DE CAJA ═══
+   El dinero entra a la gaveta del turno, así que NO toca el Disponible:
+   el cierre lo sube solo al contar más efectivo. */
+/* mapea el método de la caja (efectivo, efectivo_usd, bancol, zelle, bs)
+   al método del Disponible (efcop, efusd, bancol, zelle, bs) */
+function metCajaADisp(m){
+  m = normMetodo(m);
+  if(m === 'efectivo') return 'efcop';
+  if(m === 'efectivo_usd') return 'efusd';
+  return m; /* bancol, zelle, bs coinciden */
+}
+function llenarCtasCobro(){
+  var sel = document.getElementById('mv-ctacob');
+  if(!sel) return;
+  var ids = Object.keys(APP.ctas||{}).filter(function(id){
+    var c = APP.ctas[id];
+    return c && (c.tipo||'cobrar') === 'cobrar' && c.estado !== 'pagada';
+  }).sort(function(a,b){ return (APP.ctas[b].creada||0) - (APP.ctas[a].creada||0); });
+  ids.forEach(function(id){
+    var c = APP.ctas[id];
+    var o = document.createElement('option');
+    o.value = id;
+    o.textContent = c.nombre+' · debe '+fmtCOP(Math.max(0, (c.monto||0)-(c.abonado||0)));
+    sel.appendChild(o);
+  });
+  sel.onchange = function(){
+    var info = document.getElementById('mv-ctacob-info');
+    if(!info) return;
+    var c = APP.ctas[sel.value];
+    info.textContent = c ? 'El monto del ingreso se abonará a este crédito. Si cubre todo el saldo, queda PAGADO.' : '';
+  };
+}
+function registrarAbonoCobroDesdeCaja(id, monto, metodoCaja){
+  var c = APP.ctas[id];
+  if(!c) return;
+  var k = metCajaADisp(metodoCaja);
+  var mon = monDe(k);
+  var montoCOP = Math.round(aCOP(k, monto));
+  var abono = {
+    monto: monto, moneda: mon, montoCOP: montoCOP,
+    tasa: mon === 'USD' ? (APP.tasas.usd||0) : (mon === 'VES' ? (APP.tasas.ves||0) : 1),
+    metodo: k, origen: 'caja',
+    nota: 'Abonado en la caja del turno',
+    ts: Date.now(), fecha: fechaOperativa(), usuario: APP.user.nombre
+  };
+  var nuevoAbonado = (c.abonado||0) + montoCOP;
+  var upd = {};
+  upd['cuentas/'+id+'/abonos/'+db.ref('cuentas/'+id+'/abonos').push().key] = abono;
+  upd['cuentas/'+id+'/abonado'] = nuevoAbonado;
+  if(nuevoAbonado >= (c.monto||0)) upd['cuentas/'+id+'/estado'] = 'pagada';
+  db.ref().update(upd).then(function(){
+    log('abono', 'cobrar · '+c.nombre+' · '+fmtMon(k, monto)+' · desde caja del turno');
+    toast(nuevoAbonado >= (c.monto||0) ? '🎉 '+c.nombre+' pagó por completo' : '✅ Abono de '+c.nombre+' · saldo '+fmtCOP(Math.max(0, (c.monto||0)-nuevoAbonado)));
+  }).catch(function(){ toast('⚠️ Ingreso guardado, pero el abono al crédito no se registró'); });
+}
 
 /* ── Editar / eliminar movimiento ── */
 APP.modalEditarMov = function(k){
@@ -3980,6 +4044,16 @@ APP.abrirCuentas = function(){
 };
 APP.ctaTab = function(t){ APP._ctaTab = t; renderCuentas(); };
 APP.ctaFiltro = function(f){ APP._ctaFiltro = f; renderCuentas(); };
+APP._busqCta = '';
+APP.buscarCta = function(v){
+  APP._busqCta = (v||'').toLowerCase().trim();
+  var pos = null;
+  var el = document.getElementById('ct-busq');
+  if(el){ try{ pos = el.selectionStart; }catch(e){} }
+  renderCuentas();
+  var el2 = document.getElementById('ct-busq');
+  if(el2){ el2.focus(); if(pos !== null){ try{ el2.setSelectionRange(pos, pos); }catch(e){} } }
+};
 function saldoCta(c){ return Math.max(0, (c.monto||0)-(c.abonado||0)); }
 function badgeCta(c){
   if(c.estado === 'pagada') return {cls:'pagada', tx:'PAGADA ✅'};
@@ -4018,10 +4092,15 @@ function renderCuentas(){
   });
   document.getElementById('ct-filtros').innerHTML = hf;
   /* lista — normalizamos el tipo por si alguna quedó sin él */
+  var q = (APP._busqCta||'').toLowerCase().trim();
   var ids = Object.keys(APP.ctas).filter(function(id){
     var c = APP.ctas[id];
     var tipo = c.tipo || 'cobrar';
     if(tipo !== APP._ctaTab) return false;
+    if(q){
+      var txt = ((c.nombre||'')+' '+(c.descripcion||'')+' '+(c.nroFactura||'')).toLowerCase();
+      if(txt.indexOf(q) < 0) return false;
+    }
     var b = badgeCta(c);
     if(APP._ctaFiltro === 'pend') return c.estado !== 'pagada';
     if(APP._ctaFiltro === 'venc') return c.estado !== 'pagada' && b.cls === 'venc';
@@ -4044,6 +4123,9 @@ function renderCuentas(){
     var colSaldo = c.estado==='pagada' ? 'var(--ok)' : (b.cls==='venc' ? 'var(--rojo)' : (b.cls==='prox' ? 'var(--amarillo, #D97706)' : 'var(--tinta)'));
     h += '<div class="card" style="cursor:pointer'+(c.estado==='pagada'?';opacity:.62':'')+'" onclick="APP.detalleCuenta(\''+id+'\')">';
     h += '<div class="cta-top"><b>'+escapa(c.nombre)+'</b><span class="badge '+b.cls+'">'+b.tx+'</span></div>';
+    if(c.nroFactura || c.fechaFactura){
+      h += '<div class="cta-det" style="color:var(--noche,#3B5BA5);font-weight:700">📄 '+(c.nroFactura?'Fact. '+escapa(c.nroFactura):'')+(c.nroFactura&&c.fechaFactura?' · ':'')+(c.fechaFactura?escapa(c.fechaFactura):'')+'</div>';
+    }
     if(c.descripcion) h += '<div class="cta-det">'+escapa(c.descripcion)+'</div>';
     var quien = esCob ? 'Debe' : 'Debemos';
     h += '<div class="saldo-line"><span class="abonado">'+((c.abonado||0)>0 ? 'Abonado '+fmtCOP(c.abonado)+' de '+fmtCOP(c.monto) : 'Sin abonos · '+fmtCOP(c.monto))+'</span>';
@@ -4111,6 +4193,8 @@ APP.modalCuenta = function(id){
     h += '<div class="conv" id="ct-ancla-tx" style="margin-top:4px"></div>';
     h += '<div style="font-size:10px;color:var(--gris);margin:4px 2px 0;line-height:1.5">Escribe el monto en Bs y la tasa de la factura: el equivalente en US$ se calcula solo (o escríbelo directo si la factura ya lo trae). <b>Ese monto en dólares es lo que se debe</b>; los bolívares se recalculan con la tasa del día que pagues.</div>';
   }
+  h += '<div class="flabel">📄 Número de factura (opcional)</div><input class="inp" id="ct-nrofact" type="text" value="'+escapa(c.nroFactura||'')+'" placeholder="Ej: 00123">';
+  h += '<div class="flabel">📅 Fecha de la factura (opcional)</div><input class="inp" id="ct-fechafact" type="date" value="'+escapa(c.fechaFactura||'')+'">';
   h += '<div class="flabel">'+(esCob?'Monto total (COP)':'Monto estimado en pesos hoy (COP) — referencia')+'</div><input class="inp" id="ct-monto" type="text" inputmode="numeric" value="'+((c.monto||0)?(c.monto).toLocaleString('es-CO'):'')+'" placeholder="0" oninput="APP.fmtMiles(this)">';
   h += '<div class="flabel">Fecha de vencimiento (opcional)</div><input class="inp" id="ct-vence" type="date" value="'+escapa(c.vence||'')+'">';
   if(!esCob){
@@ -4175,6 +4259,10 @@ APP.guardarCuenta = function(id){
     creadoPor: prev ? (prev.creadoPor||APP.user.nombre) : APP.user.nombre
   };
   if(prev && prev.abonos) data.abonos = prev.abonos;
+  var nrofact = ((document.getElementById('ct-nrofact')||{}).value||'').trim();
+  var fechafact = (document.getElementById('ct-fechafact')||{}).value||'';
+  if(nrofact) data.nroFactura = nrofact; else if(prev && prev.nroFactura) data.nroFactura = null;
+  if(fechafact) data.fechaFactura = fechafact; else if(prev && prev.fechaFactura) data.fechaFactura = null;
   if(APP._fotoCuenta) data.foto = APP._fotoCuenta;
   if(data.tipo === 'pagar'){
     var bs = parseFloat((document.getElementById('ct-bs')||{}).value)||0;
@@ -4237,11 +4325,14 @@ APP.detalleCuenta = function(id){
     keys.forEach(function(k){
       var a = ab[k];
       var met = METS_DISP[a.metodo]||{tx:a.metodo};
-      h += '<div class="abono-row"><div><b>+'+fmtMon(a.metodo, a.monto)+'</b> · '+met.tx;
+      h += '<div class="abono-row"><div style="flex:1"><b>+'+fmtMon(a.metodo, a.monto)+'</b> · '+met.tx;
       if(monDe(a.metodo) !== 'COP') h += ' <span class="sub">(≈ '+fmtCOP(a.montoCOP||0)+')</span>';
       if(a.ref) h += ' · ref '+escapa(a.ref);
-      h += '<br><span class="sub">'+escapa(a.fecha||'')+' · '+horaStr(a.ts)+' · recibió '+escapa(a.usuario||'')+(a.nota?' · '+escapa(a.nota):'')+'</span></div>';
+      h += '<br><span class="sub">'+escapa(a.fecha||'')+' · '+horaStr(a.ts)+' · recibió '+escapa(a.usuario||'')+(a.origen==='caja'?' · 💵 desde caja del turno':'')+(a.nota?' · '+escapa(a.nota):'')+'</span></div>';
       if(a.foto) h += '<img src="'+a.foto+'" style="width:42px;height:42px;object-fit:cover;border-radius:10px;border:1px solid var(--linea);cursor:pointer" onclick="APP.verFotoAbono(\''+id+'\',\''+k+'\')" alt="comprobante">';
+      if(APP.user.rol === 'admin' || APP.user.rol === 'supervisor'){
+        h += '<button style="border:1px solid var(--linea);background:var(--card);border-radius:9px;width:30px;height:30px;font-size:13px;cursor:pointer;padding:0;margin-left:6px" title="Editar abono" onclick="APP.editarAbono(\''+id+'\',\''+k+'\')">✏️</button>';
+      }
       h += '</div>';
     });
   } else { h += '<div class="vacio" style="padding:14px">Sin abonos todavía</div>'; }
@@ -4495,6 +4586,110 @@ APP.guardarAbono = function(id){
     if(btn){ btn.disabled = false; }
     toast('⚠️ No se guardó: '+String(e && e.message || e).slice(0,50));
   });
+};
+
+/* ── EDITAR / BORRAR ABONO (con ajuste automático del Disponible) ── */
+APP._editAb = null;
+APP.editarAbono = function(id, k){
+  var c = APP.ctas[id];
+  var a = c && c.abonos ? c.abonos[k] : null;
+  if(!a){ toast('Abono no encontrado'); return; }
+  if(!(APP.user.rol === 'admin' || APP.user.rol === 'supervisor')){ toast('Solo admin/supervisor'); return; }
+  APP._editAb = {id:id, k:k, orig:a};
+  APP._editAbMet = a.metodo;
+  var esCob = c.tipo === 'cobrar';
+  var mon = monDe(a.metodo);
+  var h = '';
+  h += '<div style="font-size:12px;color:var(--gris);margin-bottom:10px">'+escapa(c.nombre)+' · abono del '+escapa(a.fecha||'')+'</div>';
+  h += '<div class="nota" style="background:#FEF6E7;border-color:#F5DCA6;color:#8A6212;margin-bottom:12px">Al editar, la app ajusta sola el Disponible: quita el efecto viejo y aplica el nuevo. No tienes que mover dinero entre métodos a mano.</div>';
+  h += '<div class="flabel">Método</div><div class="metodos" id="ea-mets">';
+  Object.keys(METS_DISP).forEach(function(m){
+    if(m === 'otros') return;
+    h += '<button type="button" class="'+(m===a.metodo?'sel':'')+'" id="eam-'+m+'" onclick="APP.pickMetEditAb(\''+m+'\')">'+METS_DISP[m].tx+'</button>';
+  });
+  h += '</div>';
+  h += '<div class="flabel" id="ea-monto-lbl">Monto ('+(mon==='COP'?'COP':(mon==='USD'?'USD':'Bs'))+')</div>';
+  h += '<input class="inp" id="ea-monto" type="'+(mon==='COP'?'text':'number')+'" inputmode="'+(mon==='COP'?'numeric':'decimal')+'" value="'+(mon==='COP'?(a.monto||0).toLocaleString('es-CO'):(a.monto||0))+'" '+(mon==='COP'?'oninput="APP.fmtMiles(this)"':'step="0.01"')+'>';
+  h += '<button class="btn verde" style="margin-top:14px" onclick="APP.guardarEditAbono()">💾 Guardar cambios</button>';
+  h += '<button class="btn" style="margin-top:8px;background:var(--rojo);box-shadow:none" onclick="APP.borrarAbono()">🗑️ Borrar este abono</button>';
+  h += '<button class="btn sec" onclick="APP.detalleCuenta(\''+id+'\')">Cancelar</button>';
+  abrirModal('✏️ Editar abono', h);
+};
+APP._editAbMet = 'efcop';
+APP.pickMetEditAb = function(m){
+  APP._editAbMet = m;
+  Object.keys(METS_DISP).forEach(function(x){
+    var el = document.getElementById('eam-'+x);
+    if(el) el.classList.toggle('sel', x === m);
+  });
+  var mon = monDe(m);
+  var lbl = document.getElementById('ea-monto-lbl');
+  var inp = document.getElementById('ea-monto');
+  if(lbl) lbl.textContent = 'Monto ('+(mon==='COP'?'COP':(mon==='USD'?'USD':'Bs'))+')';
+  if(inp){
+    if(mon==='COP'){ inp.type='text'; inp.setAttribute('inputmode','numeric'); inp.setAttribute('oninput','APP.fmtMiles(this)'); }
+    else { inp.type='number'; inp.step='0.01'; inp.setAttribute('inputmode','decimal'); inp.removeAttribute('oninput'); }
+  }
+};
+function revertirAbono(c, id, a){
+  var upd = {};
+  var nuevoAbonado = Math.max(0, (c.abonado||0) - (a.montoCOP||0));
+  upd['cuentas/'+id+'/abonado'] = nuevoAbonado;
+  if(c.estado === 'pagada' && nuevoAbonado < (c.monto||0)) upd['cuentas/'+id+'/estado'] = 'pendiente';
+  return {upd:upd, nuevoAbonado:nuevoAbonado};
+}
+APP.guardarEditAbono = function(){
+  var E = APP._editAb; if(!E) return;
+  var c = APP.ctas[E.id]; var a = E.orig;
+  if(!c || !a) return;
+  var nk = APP._editAbMet, nmon = monDe(nk);
+  var nuevoMonto = (nmon==='COP') ? valMiles('ea-monto') : (parseFloat((document.getElementById('ea-monto')||{}).value)||0);
+  if(nuevoMonto <= 0){ toast('El monto debe ser mayor a 0 · si quieres quitarlo usa 🗑️'); return; }
+  var nuevoCOP = Math.round(aCOP(nk, nuevoMonto));
+  var esCob = c.tipo === 'cobrar';
+  var deltasRev = {};
+  deltasRev[a.metodo] = esCob ? -(a.monto||0) : (a.monto||0);
+  var deltasNew = {};
+  deltasNew[nk] = esCob ? nuevoMonto : -nuevoMonto;
+  var rev = revertirAbono(c, E.id, a);
+  var upd = rev.upd;
+  var abNuevo = Object.assign({}, a, {
+    monto: nuevoMonto, moneda: nmon, montoCOP: nuevoCOP, metodo: nk,
+    tasa: nmon==='USD'?(APP.tasas.usd||0):(nmon==='VES'?(APP.tasas.ves||0):1),
+    editadoPor: APP.user.nombre, editadoTs: Date.now()
+  });
+  upd['cuentas/'+E.id+'/abonos/'+E.k] = abNuevo;
+  var abonadoFinal = rev.nuevoAbonado + nuevoCOP;
+  upd['cuentas/'+E.id+'/abonado'] = abonadoFinal;
+  upd['cuentas/'+E.id+'/estado'] = abonadoFinal >= (c.monto||0) ? 'pagada' : 'pendiente';
+  db.ref().update(upd).then(function(){
+    return moverDisponible(deltasRev, 'ajuste', '✏️ Corrección de abono · '+c.nombre+' (revierte)');
+  }).then(function(){
+    return moverDisponible(deltasNew, esCob ? 'abono-cobrar' : 'abono-pagar', '✏️ Abono corregido · '+c.nombre+' · '+fmtMon(nk, nuevoMonto));
+  }).then(function(){
+    log('abono-editado', c.nombre+' · '+fmtMon(a.metodo, a.monto)+' → '+fmtMon(nk, nuevoMonto)+' · por '+APP.user.nombre);
+    toast('✅ Abono corregido · Disponible ajustado');
+    APP.detalleCuenta(E.id);
+  }).catch(function(e){ toast('⚠️ No se pudo: '+String(e && e.message||e).slice(0,50)); });
+};
+APP.borrarAbono = function(){
+  var E = APP._editAb; if(!E) return;
+  var c = APP.ctas[E.id]; var a = E.orig;
+  if(!c || !a) return;
+  if(!confirm('¿Borrar este abono de '+fmtMon(a.metodo, a.monto)+'?\nLa app devuelve el efecto al Disponible y sube el saldo pendiente.')) return;
+  var esCob = c.tipo === 'cobrar';
+  var deltasRev = {};
+  deltasRev[a.metodo] = esCob ? -(a.monto||0) : (a.monto||0);
+  var rev = revertirAbono(c, E.id, a);
+  var upd = rev.upd;
+  upd['cuentas/'+E.id+'/abonos/'+E.k] = null;
+  db.ref().update(upd).then(function(){
+    return moverDisponible(deltasRev, 'ajuste', '🗑️ Abono borrado · '+c.nombre+' (revierte '+fmtMon(a.metodo, a.monto)+')');
+  }).then(function(){
+    log('abono-borrado', c.nombre+' · '+fmtMon(a.metodo, a.monto)+' · por '+APP.user.nombre);
+    toast('🗑️ Abono borrado · Disponible ajustado');
+    APP.detalleCuenta(E.id);
+  }).catch(function(e){ toast('⚠️ No se pudo: '+String(e && e.message||e).slice(0,50)); });
 };
 
 /* ── Disponible (tesorería) ── */
