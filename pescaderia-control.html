@@ -2747,8 +2747,9 @@ function htmlDesgloseVenta(ci, sufijo){
   var vPesc = ci.ventaPescEstimada||0;
   var vPOS = ci.totalPOS||0;
   var vRest = Math.max(0, vPOS - vPesc);
-  if(vPOS > 0 && (vPesc > 0 || (ci.salidasRestDet&&ci.salidasRestDet.length))){
-    var pctP = vPOS>0 ? Math.round(vPesc/vPOS*100) : 0;
+  var hayDatos = vPesc > 0 || (ci.salidasRestDet&&ci.salidasRestDet.length) || (ci.ventaPescDet&&ci.ventaPescDet.length) || vPOS > 0;
+  if(hayDatos){
+    var pctP = vPOS>0 ? Math.round(vPesc/vPOS*100) : (vPesc>0?100:0);
     var pctR = 100 - pctP;
     h += '<div class="card" style="margin-bottom:12px"><div class="lbl">De dónde vino la venta</div>';
     h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">';
@@ -2757,11 +2758,11 @@ function htmlDesgloseVenta(ci, sufijo){
     h += '<b style="font-size:15px;color:var(--coral)">'+fmtCOP(vPesc)+'</b></div>';
     h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">';
     h += '<div style="width:38px;height:38px;border-radius:11px;background:#FFF0E8;display:flex;align-items:center;justify-content:center;font-size:18px">🍽️</div>';
-    h += '<div style="flex:1"><div style="font-size:13px;font-weight:700">Restaurante</div><div style="font-size:10px;color:var(--gris)">platos, bebidas (POS − pescadería)</div></div>';
-    h += '<b style="font-size:15px;color:var(--coral-osc,#E5502F)">'+fmtCOP(vRest)+'</b></div>';
+    h += '<div style="flex:1"><div style="font-size:13px;font-weight:700">Restaurante</div><div style="font-size:10px;color:var(--gris)">'+(vPOS>0?'platos, bebidas (POS − pescadería)':'pon el Total POS para ver esto')+'</div></div>';
+    h += '<b style="font-size:15px;color:var(--coral-osc,#E5502F)">'+(vPOS>0?fmtCOP(vRest):'—')+'</b></div>';
     h += '<div style="display:flex;height:8px;border-radius:6px;overflow:hidden;margin-bottom:8px;background:#EEE">';
     h += '<div style="width:'+pctP+'%;background:var(--coral)"></div><div style="width:'+pctR+'%;background:var(--coral-osc,#E5502F)"></div></div>';
-    h += '<div class="tot-line big" style="padding-top:10px;border-top:1px solid var(--linea)"><span>📊 Total POS</span><b>'+fmtCOP(vPOS)+'</b></div>';
+    h += '<div class="tot-line big" style="padding-top:10px;border-top:1px solid var(--linea)"><span>📊 Total POS</span><b>'+(vPOS>0?fmtCOP(vPOS):'<span style="font-size:12px;color:var(--gris);font-weight:600">pendiente</span>')+'</b></div>';
     h += '</div>';
   }
   if(ci.ventaPescDet && ci.ventaPescDet.length){
