@@ -580,6 +580,7 @@ select.inp{appearance:none;-webkit-appearance:none}
     <button class="btn sec" onclick="APP.abrirMovInv()">📚 Ver movimientos de inventario</button>
     <button class="btn sec" onclick="APP.modalProducto(null)">＋ Agregar producto</button>
     <button class="btn sec" id="btn-nueva-cat-al" onclick="APP.nuevaCategoria()">🏷️ Nueva categoría</button>
+    <button class="btn sec" id="btn-cats-cocinar" onclick="APP.configCatsCocinar()">🍽️ Configurar categorías para cocinar</button>
   </div>
 </div>
 
@@ -1115,6 +1116,9 @@ function init(){
     recomputarCats();
     if(APP._pantalla === 's-linea') renderLinea();
     if(APP._pantalla === 's-almacen') renderAlmacen();
+  });
+  db.ref('inventario/catsCocinar').on('value', function(snap){
+    APP.catsCocinar = snap.val()||{};
   });
   db.ref('inventario/productos').on('value', function(snap){
     var val = snap.val();
@@ -2084,13 +2088,14 @@ APP._ventasPescHoy = {total:0, costo:0, n:0};
 function cargarSalidasHoy(fecha){
   db.ref('inventario/salidasRest').orderByChild('fecha').equalTo(fecha).once('value').then(function(snap){
     var v = snap.val()||{};
-    var costo = 0, venta = 0, n = 0;
+    var costo = 0, venta = 0, n = 0, det = [];
     Object.keys(v).forEach(function(k){
       costo += (v[k].totalCosto||0);
       venta += (v[k].totalVenta||0);
       n++;
+      det.push({nombre:v[k].nombre, cant:v[k].cant, unidad:v[k].unidad, costo:v[k].totalCosto||0, venta:v[k].totalVenta||0});
     });
-    APP._salidasHoy = {costo:costo, venta:venta, n:n};
+    APP._salidasHoy = {costo:costo, venta:venta, n:n, det:det};
     var w = document.getElementById('r-rest-wrap');
     var e = document.getElementById('r-rest');
     if(w && e){
@@ -2100,13 +2105,14 @@ function cargarSalidasHoy(fecha){
   }).catch(function(){});
   db.ref('ventasPesc').orderByChild('fecha').equalTo(fecha).once('value').then(function(snap){
     var v = snap.val()||{};
-    var total = 0, costo = 0, n = 0;
+    var total = 0, costo = 0, n = 0, det = [];
     Object.keys(v).forEach(function(k){
       total += (v[k].total||0);
       costo += (v[k].totalCosto||0);
       n++;
+      det.push({nombre:v[k].nombre, cant:v[k].cant, unidad:v[k].unidad, total:v[k].total||0});
     });
-    APP._ventasPescHoy = {total:total, costo:costo, n:n};
+    APP._ventasPescHoy = {total:total, costo:costo, n:n, det:det};
     var w = document.getElementById('r-vpesc-wrap');
     var e = document.getElementById('r-vpesc');
     if(w && e){
@@ -2262,6 +2268,8 @@ APP.guardarCierre = function(){
       ventaTurno: Math.round(c.venta), totalPOS: c.pos, posAcumulado: c.posAcum, cortePrevio: c.posPrev, diferencia: c.posAcum ? Math.round(c.dif) : 0, arqueoDirecto: c.posAcum ? false : true,
       salidasRestCosto: APP._salidasHoy.costo||0, salidasRestVenta: APP._salidasHoy.venta||0,
       ventaPescEstimada: (APP._ventasPescHoy&&APP._ventasPescHoy.total)||0,
+      ventaPescDet: (APP._ventasPescHoy&&APP._ventasPescHoy.det)||[],
+      salidasRestDet: APP._salidasHoy.det||[],
       notas: (document.getElementById('c-notas')||{}).value||'',
       cajera: d.apertura.cajera, emoji: d.apertura.emoji||'', firmadoPor: APP.user.nombre,
       ts: Date.now()
@@ -2667,6 +2675,31 @@ function lineasConteo(ci){
   filas.forEach(function(f){ h += '<div class="tot-line"><span>'+f[0]+'</span><b>'+f[1]+'</b></div>'; });
   return h || '<div class="vacio">Sin conteo</div>';
 }
+/* Acordeón de detalle para el cierre: cerrado por defecto, toggle limpio por DOM.
+   items = [{izq, der, col}] */
+function acordeonDetalle(id, titulo, count, color, items){
+  var h = '';
+  h += '<div class="cierre-acc" style="background:var(--card);border:1px solid var(--linea);border-radius:14px;margin-bottom:10px;overflow:hidden;box-shadow:var(--sombra-sutil,0 1px 2px rgba(15,34,48,.03))">';
+  h += '<div onclick="APP.toggleAccDetalle(\''+id+'\')" style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">';
+  h += '<span style="font-size:13px;font-weight:700;color:'+color+'">'+titulo+' <span style="font-size:11px;color:var(--gris);font-weight:600;background:var(--crema,#F5F7F9);padding:2px 8px;border-radius:9px;margin-left:4px">'+count+'</span></span>';
+  h += '<span id="chev-'+id+'" style="font-size:12px;color:var(--gris);transition:transform .25s">▼</span>';
+  h += '</div>';
+  h += '<div id="body-'+id+'" style="display:none;padding:0 16px 12px">';
+  items.forEach(function(it){
+    h += '<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid #F5F5F5;font-size:12.5px"><span style="flex:1">'+it.izq+'</span><b style="color:'+(it.col||'var(--tinta)')+';white-space:nowrap">'+it.der+'</b></div>';
+  });
+  h += '</div></div>';
+  return h;
+}
+APP._accDetalle = {};
+APP.toggleAccDetalle = function(id){
+  var body = document.getElementById('body-'+id);
+  var chev = document.getElementById('chev-'+id);
+  if(!body) return;
+  var abierto = body.style.display !== 'none';
+  body.style.display = abierto ? 'none' : 'block';
+  if(chev) chev.style.transform = abierto ? 'rotate(0deg)' : 'rotate(180deg)';
+};
 APP.detalleTurno = function(i){
   var d = APP._histCache[i];
   if(!d || !d.cierre) return;
@@ -2675,6 +2708,39 @@ APP.detalleTurno = function(i){
   var tN = d.turno === 'man' ? '☀️ Mañana' : '🌙 Noche';
   var h = '';
   h += '<div style="font-size:12px;color:var(--gris);margin-bottom:10px">'+fechaLegible(d.fecha)+' · '+tN+' · '+escapa(ci.cajera||'')+' '+(ci.emoji||'')+'</div>';
+  /* ═ Desglose: de dónde vino la venta (pescadería vs restaurante) ═ */
+  var vPesc = ci.ventaPescEstimada||0;
+  var vPOS = ci.totalPOS||0;
+  var vRest = Math.max(0, vPOS - vPesc);
+  if(vPOS > 0 && (vPesc > 0 || (ci.salidasRestDet&&ci.salidasRestDet.length))){
+    var pctP = vPOS>0 ? Math.round(vPesc/vPOS*100) : 0;
+    var pctR = 100 - pctP;
+    h += '<div class="card" style="margin-bottom:12px"><div class="lbl">De dónde vino la venta</div>';
+    h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">';
+    h += '<div style="width:38px;height:38px;border-radius:11px;background:#E6F7F5;display:flex;align-items:center;justify-content:center;font-size:18px">🐟</div>';
+    h += '<div style="flex:1"><div style="font-size:13px;font-weight:700">Pescadería</div><div style="font-size:10px;color:var(--gris)">producto crudo'+((ci.ventaPescDet&&ci.ventaPescDet.length)?' · '+ci.ventaPescDet.length+' ventas':'')+'</div></div>';
+    h += '<b style="font-size:15px;color:var(--coral)">'+fmtCOP(vPesc)+'</b></div>';
+    h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">';
+    h += '<div style="width:38px;height:38px;border-radius:11px;background:#FFF0E8;display:flex;align-items:center;justify-content:center;font-size:18px">🍽️</div>';
+    h += '<div style="flex:1"><div style="font-size:13px;font-weight:700">Restaurante</div><div style="font-size:10px;color:var(--gris)">platos, bebidas (POS − pescadería)</div></div>';
+    h += '<b style="font-size:15px;color:var(--coral-osc,#E5502F)">'+fmtCOP(vRest)+'</b></div>';
+    h += '<div style="display:flex;height:8px;border-radius:6px;overflow:hidden;margin-bottom:8px;background:#EEE">';
+    h += '<div style="width:'+pctP+'%;background:var(--coral)"></div><div style="width:'+pctR+'%;background:var(--coral-osc,#E5502F)"></div></div>';
+    h += '<div class="tot-line big" style="padding-top:10px;border-top:1px solid var(--linea)"><span>📊 Total POS</span><b>'+fmtCOP(vPOS)+'</b></div>';
+    h += '</div>';
+  }
+  /* ═ Acordeón: detalle de pescadería ═ */
+  if(ci.ventaPescDet && ci.ventaPescDet.length){
+    h += acordeonDetalle('cierre-pesc-'+i, '🛒 Vendido en pescadería', ci.ventaPescDet.length, 'var(--coral)', ci.ventaPescDet.map(function(x){
+      return {izq: escapa(x.nombre)+' · '+fmtQty(x.cant)+' '+escapa(x.unidad), der: fmtCOP(x.total), col:'var(--ok)'};
+    }));
+  }
+  /* ═ Acordeón: detalle de salidas al restaurante ═ */
+  if(ci.salidasRestDet && ci.salidasRestDet.length){
+    h += acordeonDetalle('cierre-rest-'+i, '🍽️ Salió al restaurante', ci.salidasRestDet.length, 'var(--coral-osc,#E5502F)', ci.salidasRestDet.map(function(x){
+      return {izq: escapa(x.nombre)+' · '+fmtQty(x.cant)+' '+escapa(x.unidad), der: 'costo '+fmtCOP(x.costo)+(x.venta?' <small style="color:var(--gris)">· ref '+fmtCOP(x.venta)+'</small>':''), col:'var(--tinta)'};
+    }));
+  }
   h += '<div class="lbl">Apertura</div>';
   h += '<div class="tot-line"><span>Hora</span><b>'+horaStr(ap.ts)+'</b></div>';
   h += '<div class="tot-line"><span>Fondo</span><b>'+fmtCOP(ap.fondoCOP||0)+((ap.fondoUSD||0)>0?' + $'+ap.fondoUSD+' USD':'')+(ap.fondoEditado?' ✏️':'')+'</b></div>';
@@ -3138,6 +3204,13 @@ APP.borrarUsuario = function(id){
 var CATS_BASE = ['🐟 Pescados','🦐 Mariscos','🧊 Congelados','🍳 Cocina express','🛒 Víveres','🥤 Bebidas','🧯 Hielo e insumos','🥡 Empaques','📦 Migrados'];
 var CATS_INV = CATS_BASE.slice();
 APP.catsCustom = [];
+APP.catsCocinar = {};
+/* ¿esta categoría se consume cocinando (cuenta como salida al restaurante)?
+   Por defecto: Pescados y Mariscos. El admin puede cambiarlo. */
+function esCategoriaCocinar(cat){
+  if(APP.catsCocinar && typeof APP.catsCocinar[cat] !== 'undefined') return !!APP.catsCocinar[cat];
+  return /pescado|marisco/i.test(cat||'');
+}
 /* recalcula CATS_INV = base + personalizadas (sin duplicar) */
 function recomputarCats(){
   CATS_INV = CATS_BASE.slice();
@@ -3196,6 +3269,37 @@ APP.nuevaCategoria = function(){
     log('categoria', 'Creada · '+nombre);
     toast('✅ Categoría "'+nombre+'" creada');
   }).catch(function(e){ toast('⚠️ No se creó: '+String(e && e.message||e).slice(0,40)); });
+};
+/* Configurar qué categorías se consumen cocinando (cuentan como salida al restaurante) */
+APP.configCatsCocinar = function(){
+  if(APP.user.rol !== 'admin'){ toast('Solo el admin puede configurar esto'); return; }
+  var h = '<div class="nota" style="background:#E8F6F5;border-color:#BEE5E2;color:#0E5F59;margin-bottom:12px">Marca las categorías cuyo producto se <b>consume cocinando</b> para el restaurante. Al despacharlas a la línea, contarán como <b>🍽️ salida al restaurante</b> (gasto a costo). Las que NO marques (víveres, salsas) solo reponen el stock de la línea.</div>';
+  CATS_INV.forEach(function(c){
+    var on = esCategoriaCocinar(c);
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 2px;border-bottom:1px solid var(--linea)">';
+    h += '<span style="font-size:13px;font-weight:600">'+c+'</span>';
+    h += '<button type="button" onclick="APP.toggleCatCocinar(this,\''+escapaAttr(c)+'\')" style="border:none;border-radius:20px;padding:6px 14px;font-size:12px;font-weight:800;cursor:pointer;'+(on?'background:var(--coral);color:#fff':'background:var(--linea);color:var(--gris)')+'">'+(on?'🍽️ Para cocinar':'📦 Stock línea')+'</button>';
+    h += '</div>';
+  });
+  h += '<button class="btn verde" style="margin-top:14px" onclick="APP.guardarCatsCocinar()">💾 Guardar configuración</button>';
+  h += '<button class="btn sec" onclick="APP.cerrarModal()">Cancelar</button>';
+  APP._catsCocinarTmp = {};
+  CATS_INV.forEach(function(c){ APP._catsCocinarTmp[c] = esCategoriaCocinar(c); });
+  abrirModal('🍽️ Categorías para cocinar', h);
+};
+APP.toggleCatCocinar = function(btn, cat){
+  var nuevo = !APP._catsCocinarTmp[cat];
+  APP._catsCocinarTmp[cat] = nuevo;
+  btn.style.background = nuevo ? 'var(--coral)' : 'var(--linea)';
+  btn.style.color = nuevo ? '#fff' : 'var(--gris)';
+  btn.textContent = nuevo ? '🍽️ Para cocinar' : '📦 Stock línea';
+};
+APP.guardarCatsCocinar = function(){
+  db.ref('inventario/catsCocinar').set(APP._catsCocinarTmp).then(function(){
+    log('config', 'Categorías para cocinar actualizadas');
+    toast('✅ Configuración guardada');
+    APP.cerrarModal();
+  }).catch(function(e){ toast('⚠️ No se guardó: '+String(e && e.message||e).slice(0,40)); });
 };
 /* Ámbitos: dónde vive cada producto.
    pesc  = solo pescadería (cava, se vende al detal)
@@ -3578,10 +3682,11 @@ APP.despachar = function(k){
   if(APP._despachando) return;
   var r = APP.reqs[k];
   if(!r || r.estado !== 'pendiente') return;
-  if(!confirm('¿Despachar la requisición Nº '+r.numero+'?\nEl almacén descuenta y la línea suma.')) return;
+  if(!confirm('¿Despachar la requisición Nº '+r.numero+'?\nEl almacén descuenta y la línea suma.\nLo que sea de categorías "para cocinar" contará como 🍽️ salida al restaurante.')) return;
   APP._despachando = true;
   var upd = {};
   var resumen = [];
+  var totalCocinaCosto = 0, totalCocinaVenta = 0, nCocina = 0;
   Object.keys(r.items||{}).forEach(function(pid){
     var it = r.items[pid];
     var p = APP.prods[pid];
@@ -3589,17 +3694,32 @@ APP.despachar = function(k){
     upd['inventario/productos/'+pid+'/almacen'] = Math.max(0, (p.almacen||0) - it.cant);
     upd['inventario/productos/'+pid+'/linea'] = (p.linea||0) + it.cant;
     resumen.push(it.nombre+' '+fmtQty(it.cant)+' '+it.unidad);
+    /* si la categoría se consume cocinando → registrar salida al restaurante */
+    if(esCategoriaCocinar(p.categoria)){
+      var costoU = p.costo||0, ventaU = p.venta||0;
+      var srKey = db.ref('inventario/salidasRest').push().key;
+      upd['inventario/salidasRest/'+srKey] = {
+        fecha: fechaOperativa(), ts: Date.now(),
+        prodId: pid, nombre: p.nombre, cant: it.cant, unidad: it.unidad,
+        costoUnit: costoU, ventaUnit: ventaU,
+        totalCosto: Math.round(costoU*it.cant), totalVenta: Math.round(ventaU*it.cant),
+        nota: 'Despacho Req. Nº '+r.numero+' (para cocinar)', origen: 'despacho', usuario: APP.user.nombre
+      };
+      totalCocinaCosto += Math.round(costoU*it.cant);
+      totalCocinaVenta += Math.round(ventaU*it.cant);
+      nCocina++;
+    }
   });
   upd['inventario/requisiciones/'+k+'/estado'] = 'despachada';
   upd['inventario/requisiciones/'+k+'/despachadoPor'] = APP.user.nombre;
   upd['inventario/requisiciones/'+k+'/tsDespacho'] = Date.now();
   db.ref().update(upd).then(function(){
     db.ref('inventario/movimientos').push({
-      tipo:'despacho', prodIds: Object.keys(r.items||{}), detalle:'Req. Nº '+r.numero+': '+resumen.join(', '),
+      tipo:'despacho', prodIds: Object.keys(r.items||{}), detalle:'Req. Nº '+r.numero+': '+resumen.join(', ')+(nCocina?' · 🍽️ '+nCocina+' al restaurante (costo '+fmtCOP(totalCocinaCosto)+')':''),
       usuario: APP.user.nombre, ts: Date.now(), fecha: fechaOperativa()
     });
-    log('despacho', 'Req. Nº '+r.numero);
-    toast('✅ Requisición Nº '+r.numero+' despachada');
+    log('despacho', 'Req. Nº '+r.numero+(nCocina?' · '+nCocina+' al restaurante · costo '+fmtCOP(totalCocinaCosto):''));
+    toast(nCocina ? '✅ Despachada · '+nCocina+' producto(s) al restaurante (costo '+fmtCOP(totalCocinaCosto)+')' : '✅ Requisición Nº '+r.numero+' despachada');
     APP._despachando = false;
   }).catch(function(e){
     APP._despachando = false;
@@ -3641,6 +3761,18 @@ APP.revertirDespacho = function(k){
   upd['inventario/requisiciones/'+k+'/revertidoPor'] = APP.user.nombre;
   upd['inventario/requisiciones/'+k+'/tsReversion'] = Date.now();
   db.ref().update(upd).then(function(){
+    /* borrar las salidas al restaurante que este despacho creó (para cocinar) */
+    return db.ref('inventario/salidasRest').orderByChild('fecha').equalTo(r.tsDespacho ? fechaOperativa() : fechaOperativa()).once('value').then(function(sn){
+      var borrar = {};
+      var sr = sn.val()||{};
+      Object.keys(sr).forEach(function(sk){
+        if(sr[sk] && sr[sk].origen === 'despacho' && (sr[sk].nota||'').indexOf('Req. Nº '+r.numero) >= 0){
+          borrar['inventario/salidasRest/'+sk] = null;
+        }
+      });
+      if(Object.keys(borrar).length) return db.ref().update(borrar);
+    });
+  }).then(function(){
     db.ref('inventario/movimientos').push({
       tipo:'despacho-revertido', prodIds: Object.keys(r.items||{}), detalle:'↩️ Revertido despacho Req. Nº '+r.numero+': '+resumen.join(', '),
       usuario: APP.user.nombre, ts: Date.now(), fecha: fechaOperativa()
