@@ -346,6 +346,12 @@ select.inp{appearance:none;-webkit-appearance:none}
       <div class="fila-inp"><div class="tag">💴 Efectivo COP</div><input class="inp" id="ap-cop" type="text" inputmode="numeric" placeholder="0" oninput="APP.fmtMiles(this)"></div>
       <div class="fila-inp" style="margin-bottom:0"><div class="tag">💵 Efectivo USD</div><input class="inp" id="ap-usd" type="number" inputmode="decimal" placeholder="0" min="0" step="0.01"></div>
     </div>
+    <div class="card">
+      <div class="lbl">💱 Tasas del día</div>
+      <div style="font-size:11px;color:var(--gris);margin-bottom:10px">Pon la tasa de hoy al abrir — así todo dólar o bolívar que entre en el turno se calcula solo. Podrás corregirla si cambia.</div>
+      <div class="fila-inp"><div class="tag">💵 USD → COP</div><input class="inp" id="ap-tusd" type="number" inputmode="decimal" placeholder="4200" min="0" style="text-align:right"></div>
+      <div class="fila-inp" style="margin-bottom:0"><div class="tag">🇻🇪 VES → COP</div><input class="inp" id="ap-tves" type="number" inputmode="decimal" placeholder="0.03" min="0" step="0.0001" style="text-align:right"></div>
+    </div>
     <button class="btn" id="btn-abrir" onclick="APP.abrirCaja()" disabled>🔓 Elige un turno para abrir</button>
   </div>
 </div>
@@ -374,6 +380,15 @@ select.inp{appearance:none;-webkit-appearance:none}
       <div class="lbl">Movimientos del turno</div>
       <div id="lista-movs"><div class="vacio">Sin movimientos aún</div></div>
     </div>
+    <div class="card" id="cj-tasas-card" onclick="APP.modalTasas()" style="cursor:pointer">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div class="lbl" style="margin-bottom:4px">💱 Tasas del día · tocar para ajustar</div>
+          <div style="font-size:13px;font-weight:700" id="cj-tasas-tx">USD 4200 · VES 0.03</div>
+        </div>
+        <div style="font-size:18px;color:var(--gris)">✏️</div>
+      </div>
+    </div>
     <button class="btn verde" onclick="APP.irCierre()">🔒 Hacer cierre del turno</button>
   </div>
 </div>
@@ -401,10 +416,13 @@ select.inp{appearance:none;-webkit-appearance:none}
       <div class="conv" id="cv-bs"></div>
       <div class="met" style="margin-bottom:0"><div class="mtag">🏛️ Otros (COP)</div><input id="c-otros" type="text" inputmode="numeric" placeholder="0" oninput="APP.fmtMiles(this);APP.calcCierre()"></div>
     </div>
-    <div class="card">
-      <div class="lbl">Tasas de hoy</div>
-      <div class="met"><div class="mtag">💵 USD → COP</div><input id="c-tusd" type="number" inputmode="decimal" placeholder="4200" min="0" oninput="APP.calcCierre()"></div>
-      <div class="met" style="margin-bottom:0"><div class="mtag">🇻🇪 VES → COP</div><input id="c-tves" type="number" inputmode="decimal" placeholder="0" min="0" step="0.0001" oninput="APP.calcCierre()"></div>
+    <div class="card" style="background:#F7FAFB;border-style:dashed">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:12px;color:var(--gris)">💱 Tasas del turno</div>
+        <div style="font-size:13px;font-weight:700" id="ci-tasas-tx">USD 4200 · VES 0.03</div>
+      </div>
+      <div style="font-size:10px;color:var(--gris);margin-top:6px">Se fijaron al abrir la caja. Si cambió, ajústala desde la pantalla de caja.</div>
+      <input id="c-tusd" type="hidden" value="4200"><input id="c-tves" type="hidden" value="0">
     </div>
     <div class="card">
       <div class="lbl">Venta según el POS</div>
@@ -1328,6 +1346,9 @@ APP.renderApertura = function(autoRetomar){
   document.getElementById('ap-fecha').textContent = fechaLegible(fop)+(esMadrugada?' 🌙 (madrugada)':'');
   document.getElementById('ap-fecha-inp').value = fop;
   document.getElementById('ap-hola').textContent = 'Hola '+APP.user.nombre+' 👋 · elige tu turno para comenzar';
+  var tu = document.getElementById('ap-tusd'), tv = document.getElementById('ap-tves');
+  if(tu) tu.value = APP.tasas.usd || 4200;
+  if(tv) tv.value = APP.tasas.ves || '';
   APP.turnoSel = null;
   actualizarBtnAbrir();
   document.getElementById('ap-abiertas').innerHTML = '';
@@ -1408,13 +1429,18 @@ APP.abrirCaja = function(){
   var clave = fSel+'_'+APP.turnoSel;
   var fondoCOP = valMiles('ap-cop');
   var fondoUSD = valNum('ap-usd');
+  /* tasas del día: se fijan al abrir para que todo el turno calcule bien */
+  var tUsd = parseFloat((document.getElementById('ap-tusd')||{}).value) || APP.tasas.usd || 4200;
+  var tVes = parseFloat((document.getElementById('ap-tves')||{}).value) || APP.tasas.ves || 0;
+  APP.tasas = {usd: tUsd, ves: tVes};
+  db.ref('tasas').set(APP.tasas).catch(function(){});
   db.ref('caja/turnos/'+clave).once('value').then(function(snap){
     var ex = snap.val();
     if(ex && ex.estado === 'abierta'){ toast('⚠️ Ese turno ya está abierto por '+(ex.apertura?ex.apertura.cajera:'otra persona')); APP.renderApertura(); return; }
     if(ex && ex.estado === 'cerrada'){ toast('⚠️ Ese turno ya fue cerrado hoy'); APP.renderApertura(); return; }
     var apertura = {
       cajera: APP.user.nombre, userId: APP.user.id, emoji: APP.user.emoji||'',
-      fondoCOP: fondoCOP, fondoUSD: fondoUSD, ts: Date.now()
+      fondoCOP: fondoCOP, fondoUSD: fondoUSD, tasas: {usd: tUsd, ves: tVes}, ts: Date.now()
     };
     db.ref('caja/turnos/'+clave).set({
       fecha: fSel, turno: APP.turnoSel, estado: 'abierta', apertura: apertura
@@ -1471,6 +1497,7 @@ function renderCaja(){
   var fondoEq = (d.apertura.fondoCOP||0);
   var fondoTx = fmtCOP(fondoEq) + ((d.apertura.fondoUSD||0) > 0 ? ' +$'+d.apertura.fondoUSD+' USD' : '');
   document.getElementById('k-fondo').textContent = fondoTx;
+  actualizarTasasCard();
   var s = sumMovs();
   document.getElementById('k-ing').textContent = '+'+fmtCOP(s.ingEfCOP + s.ingEfUSD*(APP.tasas.usd||4200) + s.digCOP);
   document.getElementById('k-egr').textContent = '−'+fmtCOP(s.egr);
@@ -1965,6 +1992,30 @@ APP.eliminarMov = function(k){
 };
 
 /* ── Editar fondo y fecha de caja ── */
+APP.modalTasas = function(){
+  var h = '<div style="font-size:12px;color:var(--gris);margin-bottom:12px">Corrige la tasa si el dólar o el bolívar cambió durante el día. Se aplica a los cálculos del turno.</div>';
+  h += '<div class="flabel">💵 USD → COP</div><input class="inp" id="mt-usd" type="number" inputmode="decimal" value="'+(APP.tasas.usd||4200)+'" min="0" style="text-align:right">';
+  h += '<div class="flabel">🇻🇪 VES → COP</div><input class="inp" id="mt-ves" type="number" inputmode="decimal" value="'+(APP.tasas.ves||0)+'" min="0" step="0.0001" style="text-align:right">';
+  h += '<button class="btn verde" style="margin-top:14px" onclick="APP.guardarTasas()">💾 Guardar tasas</button>';
+  h += '<button class="btn sec" onclick="APP.cerrarModal()">Cancelar</button>';
+  abrirModal('💱 Tasas del día', h);
+};
+APP.guardarTasas = function(){
+  var u = parseFloat((document.getElementById('mt-usd')||{}).value) || APP.tasas.usd || 4200;
+  var v = parseFloat((document.getElementById('mt-ves')||{}).value) || 0;
+  APP.tasas = {usd: u, ves: v};
+  db.ref('tasas').set(APP.tasas).then(function(){
+    log('tasas', 'Actualizadas · USD '+u+' · VES '+v+' · por '+APP.user.nombre);
+    toast('✅ Tasas actualizadas');
+    APP.cerrarModal();
+    actualizarTasasCard();
+    if(APP._pantalla === 's-caja' && APP.turnoData) pintarMovs(APP.turnoData);
+  }).catch(function(e){ toast('⚠️ No se guardó: '+String(e && e.message||e).slice(0,40)); });
+};
+function actualizarTasasCard(){
+  var el = document.getElementById('cj-tasas-tx');
+  if(el) el.textContent = 'USD '+(APP.tasas.usd||4200)+' · VES '+(APP.tasas.ves||0);
+}
 APP.modalFondo = function(){
   var d = APP.turnoData;
   if(!d || d.estado !== 'abierta'){ return; }
@@ -2132,6 +2183,8 @@ APP.irCierre = function(){
   document.getElementById('ci-mini').textContent = 'Turno '+tN+' · '+d.apertura.cajera;
   document.getElementById('c-tusd').value = APP.tasas.usd||4200;
   document.getElementById('c-tves').value = APP.tasas.ves||0;
+  var ctt = document.getElementById('ci-tasas-tx');
+  if(ctt) ctt.textContent = 'USD '+(APP.tasas.usd||4200)+' · VES '+(APP.tasas.ves||0);
   /* precargar pagos digitales registrados en el turno (si los campos están vacíos) */
   var s = sumMovs();
   if(!valMiles('c-bancol') && s.bancol) document.getElementById('c-bancol').value = s.bancol.toLocaleString('es-CO');
