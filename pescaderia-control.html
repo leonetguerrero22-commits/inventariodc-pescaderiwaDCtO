@@ -435,6 +435,7 @@ select.inp{appearance:none;-webkit-appearance:none}
       <div class="tot-line big"><span>Venta del turno</span><b id="r-venta">$0</b></div>
       <div class="dif ok" id="r-dif">Ingresa el conteo para calcular</div>
     </div>
+    <div id="cierre-desglose-vivo"></div>
     <div class="card">
       <div class="lbl">Notas del cierre (opcional)</div>
       <input class="inp" id="c-notas" type="text" placeholder="Ej: faltó vuelto, se prestó al turno noche…">
@@ -2213,6 +2214,17 @@ APP.calcCierre = function(){
   document.getElementById('r-venta').textContent = fmtCOP(c.venta);
   var el = document.getElementById('r-dif');
   var est = (APP._ventasPescHoy && APP._ventasPescHoy.total) || 0;
+  /* desglose en vivo: pescadería vs restaurante (usa el POS que la cajera va poniendo) */
+  var cont = document.getElementById('cierre-desglose-vivo');
+  if(cont){
+    var htmlDesg = htmlDesgloseVenta({
+      ventaPescEstimada: est,
+      totalPOS: c.pos,
+      ventaPescDet: (APP._ventasPescHoy&&APP._ventasPescHoy.det)||[],
+      salidasRestDet: (APP._salidasHoy&&APP._salidasHoy.det)||[]
+    }, 'vivo');
+    cont.innerHTML = htmlDesg ? ('<div style="text-align:center;font-size:10px;color:#B0B8BD;margin:6px 0 10px;letter-spacing:1px">— información extra (opcional) —</div>' + htmlDesg) : '';
+  }
   if(!c.posAcum && est > 0){
     /* cuadre de mercancía: lo vendido estimado vs lo que entró en caja */
     var difM = c.venta - est;
@@ -2675,6 +2687,42 @@ function lineasConteo(ci){
   filas.forEach(function(f){ h += '<div class="tot-line"><span>'+f[0]+'</span><b>'+f[1]+'</b></div>'; });
   return h || '<div class="vacio">Sin conteo</div>';
 }
+/* Desglose visual "de dónde vino la venta" + acordeones de detalle.
+   sufijo distingue instancias (vivo / índice del cierre) para IDs únicos. */
+function htmlDesgloseVenta(ci, sufijo){
+  var h = '';
+  var vPesc = ci.ventaPescEstimada||0;
+  var vPOS = ci.totalPOS||0;
+  var vRest = Math.max(0, vPOS - vPesc);
+  if(vPOS > 0 && (vPesc > 0 || (ci.salidasRestDet&&ci.salidasRestDet.length))){
+    var pctP = vPOS>0 ? Math.round(vPesc/vPOS*100) : 0;
+    var pctR = 100 - pctP;
+    h += '<div class="card" style="margin-bottom:12px"><div class="lbl">De dónde vino la venta</div>';
+    h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">';
+    h += '<div style="width:38px;height:38px;border-radius:11px;background:#E6F7F5;display:flex;align-items:center;justify-content:center;font-size:18px">🐟</div>';
+    h += '<div style="flex:1"><div style="font-size:13px;font-weight:700">Pescadería</div><div style="font-size:10px;color:var(--gris)">producto crudo'+((ci.ventaPescDet&&ci.ventaPescDet.length)?' · '+ci.ventaPescDet.length+' ventas':'')+'</div></div>';
+    h += '<b style="font-size:15px;color:var(--coral)">'+fmtCOP(vPesc)+'</b></div>';
+    h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">';
+    h += '<div style="width:38px;height:38px;border-radius:11px;background:#FFF0E8;display:flex;align-items:center;justify-content:center;font-size:18px">🍽️</div>';
+    h += '<div style="flex:1"><div style="font-size:13px;font-weight:700">Restaurante</div><div style="font-size:10px;color:var(--gris)">platos, bebidas (POS − pescadería)</div></div>';
+    h += '<b style="font-size:15px;color:var(--coral-osc,#E5502F)">'+fmtCOP(vRest)+'</b></div>';
+    h += '<div style="display:flex;height:8px;border-radius:6px;overflow:hidden;margin-bottom:8px;background:#EEE">';
+    h += '<div style="width:'+pctP+'%;background:var(--coral)"></div><div style="width:'+pctR+'%;background:var(--coral-osc,#E5502F)"></div></div>';
+    h += '<div class="tot-line big" style="padding-top:10px;border-top:1px solid var(--linea)"><span>📊 Total POS</span><b>'+fmtCOP(vPOS)+'</b></div>';
+    h += '</div>';
+  }
+  if(ci.ventaPescDet && ci.ventaPescDet.length){
+    h += acordeonDetalle('pesc-'+sufijo, '🛒 Vendido en pescadería', ci.ventaPescDet.length, 'var(--coral)', ci.ventaPescDet.map(function(x){
+      return {izq: escapa(x.nombre)+' · '+fmtQty(x.cant)+' '+escapa(x.unidad), der: fmtCOP(x.total), col:'var(--ok)'};
+    }));
+  }
+  if(ci.salidasRestDet && ci.salidasRestDet.length){
+    h += acordeonDetalle('rest-'+sufijo, '🍽️ Salió al restaurante', ci.salidasRestDet.length, 'var(--coral-osc,#E5502F)', ci.salidasRestDet.map(function(x){
+      return {izq: escapa(x.nombre)+' · '+fmtQty(x.cant)+' '+escapa(x.unidad), der: 'costo '+fmtCOP(x.costo)+(x.venta?' <small style="color:var(--gris)">· ref '+fmtCOP(x.venta)+'</small>':''), col:'var(--tinta)'};
+    }));
+  }
+  return h;
+}
 /* Acordeón de detalle para el cierre: cerrado por defecto, toggle limpio por DOM.
    items = [{izq, der, col}] */
 function acordeonDetalle(id, titulo, count, color, items){
@@ -2708,39 +2756,7 @@ APP.detalleTurno = function(i){
   var tN = d.turno === 'man' ? '☀️ Mañana' : '🌙 Noche';
   var h = '';
   h += '<div style="font-size:12px;color:var(--gris);margin-bottom:10px">'+fechaLegible(d.fecha)+' · '+tN+' · '+escapa(ci.cajera||'')+' '+(ci.emoji||'')+'</div>';
-  /* ═ Desglose: de dónde vino la venta (pescadería vs restaurante) ═ */
-  var vPesc = ci.ventaPescEstimada||0;
-  var vPOS = ci.totalPOS||0;
-  var vRest = Math.max(0, vPOS - vPesc);
-  if(vPOS > 0 && (vPesc > 0 || (ci.salidasRestDet&&ci.salidasRestDet.length))){
-    var pctP = vPOS>0 ? Math.round(vPesc/vPOS*100) : 0;
-    var pctR = 100 - pctP;
-    h += '<div class="card" style="margin-bottom:12px"><div class="lbl">De dónde vino la venta</div>';
-    h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">';
-    h += '<div style="width:38px;height:38px;border-radius:11px;background:#E6F7F5;display:flex;align-items:center;justify-content:center;font-size:18px">🐟</div>';
-    h += '<div style="flex:1"><div style="font-size:13px;font-weight:700">Pescadería</div><div style="font-size:10px;color:var(--gris)">producto crudo'+((ci.ventaPescDet&&ci.ventaPescDet.length)?' · '+ci.ventaPescDet.length+' ventas':'')+'</div></div>';
-    h += '<b style="font-size:15px;color:var(--coral)">'+fmtCOP(vPesc)+'</b></div>';
-    h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">';
-    h += '<div style="width:38px;height:38px;border-radius:11px;background:#FFF0E8;display:flex;align-items:center;justify-content:center;font-size:18px">🍽️</div>';
-    h += '<div style="flex:1"><div style="font-size:13px;font-weight:700">Restaurante</div><div style="font-size:10px;color:var(--gris)">platos, bebidas (POS − pescadería)</div></div>';
-    h += '<b style="font-size:15px;color:var(--coral-osc,#E5502F)">'+fmtCOP(vRest)+'</b></div>';
-    h += '<div style="display:flex;height:8px;border-radius:6px;overflow:hidden;margin-bottom:8px;background:#EEE">';
-    h += '<div style="width:'+pctP+'%;background:var(--coral)"></div><div style="width:'+pctR+'%;background:var(--coral-osc,#E5502F)"></div></div>';
-    h += '<div class="tot-line big" style="padding-top:10px;border-top:1px solid var(--linea)"><span>📊 Total POS</span><b>'+fmtCOP(vPOS)+'</b></div>';
-    h += '</div>';
-  }
-  /* ═ Acordeón: detalle de pescadería ═ */
-  if(ci.ventaPescDet && ci.ventaPescDet.length){
-    h += acordeonDetalle('cierre-pesc-'+i, '🛒 Vendido en pescadería', ci.ventaPescDet.length, 'var(--coral)', ci.ventaPescDet.map(function(x){
-      return {izq: escapa(x.nombre)+' · '+fmtQty(x.cant)+' '+escapa(x.unidad), der: fmtCOP(x.total), col:'var(--ok)'};
-    }));
-  }
-  /* ═ Acordeón: detalle de salidas al restaurante ═ */
-  if(ci.salidasRestDet && ci.salidasRestDet.length){
-    h += acordeonDetalle('cierre-rest-'+i, '🍽️ Salió al restaurante', ci.salidasRestDet.length, 'var(--coral-osc,#E5502F)', ci.salidasRestDet.map(function(x){
-      return {izq: escapa(x.nombre)+' · '+fmtQty(x.cant)+' '+escapa(x.unidad), der: 'costo '+fmtCOP(x.costo)+(x.venta?' <small style="color:var(--gris)">· ref '+fmtCOP(x.venta)+'</small>':''), col:'var(--tinta)'};
-    }));
-  }
+  h += htmlDesgloseVenta(ci, 'c'+i);
   h += '<div class="lbl">Apertura</div>';
   h += '<div class="tot-line"><span>Hora</span><b>'+horaStr(ap.ts)+'</b></div>';
   h += '<div class="tot-line"><span>Fondo</span><b>'+fmtCOP(ap.fondoCOP||0)+((ap.fondoUSD||0)>0?' + $'+ap.fondoUSD+' USD':'')+(ap.fondoEditado?' ✏️':'')+'</b></div>';
