@@ -2137,15 +2137,23 @@ document.getElementById('foto-inp').addEventListener('change', function(e){
 /* ═══════════ CIERRE ═══════════ */
 APP._salidasHoy = {costo:0, venta:0, n:0};
 APP._ventasPescHoy = {total:0, costo:0, n:0};
-function cargarSalidasHoy(fecha){
-  db.ref('inventario/salidasRest').orderByChild('fecha').equalTo(fecha).once('value').then(function(snap){
-    var v = snap.val()||{};
-    var costo = 0, venta = 0, n = 0, det = [];
-    Object.keys(v).forEach(function(k){
-      costo += (v[k].totalCosto||0);
-      venta += (v[k].totalVenta||0);
-      n++;
-      det.push({nombre:v[k].nombre, cant:v[k].cant, unidad:v[k].unidad, costo:v[k].totalCosto||0, venta:v[k].totalVenta||0});
+function cargarSalidasHoy(fecha, fechaAlt){
+  var fechas = [fecha];
+  if(fechaAlt && fechaAlt !== fecha) fechas.push(fechaAlt);
+  /* Salidas al restaurante — combinamos ambas fechas sin duplicar */
+  Promise.all(fechas.map(function(f){
+    return db.ref('inventario/salidasRest').orderByChild('fecha').equalTo(f).once('value');
+  })).then(function(snaps){
+    var vistos = {}, costo = 0, venta = 0, n = 0, det = [];
+    snaps.forEach(function(snap){
+      var v = snap.val()||{};
+      Object.keys(v).forEach(function(k){
+        if(vistos[k]) return; vistos[k] = 1;
+        costo += (v[k].totalCosto||0);
+        venta += (v[k].totalVenta||0);
+        n++;
+        det.push({nombre:v[k].nombre, cant:v[k].cant, unidad:v[k].unidad, costo:v[k].totalCosto||0, venta:v[k].totalVenta||0});
+      });
     });
     APP._salidasHoy = {costo:costo, venta:venta, n:n, det:det};
     var w = document.getElementById('r-rest-wrap');
@@ -2154,15 +2162,22 @@ function cargarSalidasHoy(fecha){
       w.style.display = n ? 'flex' : 'none';
       e.innerHTML = fmtCOP(costo)+(venta?' <small style="font-weight:700;color:var(--gris)">· ref. venta '+fmtCOP(venta)+'</small>':'');
     }
+    APP.calcCierre();
   }).catch(function(){});
-  db.ref('ventasPesc').orderByChild('fecha').equalTo(fecha).once('value').then(function(snap){
-    var v = snap.val()||{};
-    var total = 0, costo = 0, n = 0, det = [];
-    Object.keys(v).forEach(function(k){
-      total += (v[k].total||0);
-      costo += (v[k].totalCosto||0);
-      n++;
-      det.push({nombre:v[k].nombre, cant:v[k].cant, unidad:v[k].unidad, total:v[k].total||0});
+  /* Ventas de pescadería — igual, combinando ambas fechas */
+  Promise.all(fechas.map(function(f){
+    return db.ref('ventasPesc').orderByChild('fecha').equalTo(f).once('value');
+  })).then(function(snaps){
+    var vistos = {}, total = 0, costo = 0, n = 0, det = [];
+    snaps.forEach(function(snap){
+      var v = snap.val()||{};
+      Object.keys(v).forEach(function(k){
+        if(vistos[k]) return; vistos[k] = 1;
+        total += (v[k].total||0);
+        costo += (v[k].totalCosto||0);
+        n++;
+        det.push({nombre:v[k].nombre, cant:v[k].cant, unidad:v[k].unidad, total:v[k].total||0});
+      });
     });
     APP._ventasPescHoy = {total:total, costo:costo, n:n, det:det};
     var w = document.getElementById('r-vpesc-wrap');
@@ -2177,7 +2192,7 @@ function cargarSalidasHoy(fecha){
 APP.irCierre = function(){
   var d = APP.turnoData;
   if(!d){ toast('No hay turno activo'); return; }
-  cargarSalidasHoy(d.fecha||fechaOperativa());
+  cargarSalidasHoy(d.fecha||fechaOperativa(), fechaOperativa());
   APP.goScreen('s-cierre');
   var tN = d.turno === 'man' ? 'Mañana' : 'Noche';
   document.getElementById('ci-mini').textContent = 'Turno '+tN+' · '+d.apertura.cajera;
