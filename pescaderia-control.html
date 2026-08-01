@@ -310,15 +310,15 @@ select.inp{appearance:none;-webkit-appearance:none}
     <div class="ucarr" id="login-users"><div class="cargando" style="min-width:100%">Conectando con Firebase…</div></div>
     <div class="usel-tx" id="login-sel"></div>
     <div id="huella-hero" style="display:none;text-align:center;margin:8px 0 4px">
-      <div onclick="APP.entrarConHuella(APP.userSel)" style="width:78px;height:78px;border-radius:50%;background:linear-gradient(135deg,var(--coral),var(--coral-osc));margin:0 auto;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(23,169,160,.35);cursor:pointer"><span style="font-size:40px">\uD83D\uDC46</span></div>
+      <div onclick="APP.entrarConHuella(APP.userSel)" style="width:78px;height:78px;border-radius:50%;background:linear-gradient(135deg,var(--coral),var(--coral-osc));margin:0 auto;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(23,169,160,.35);cursor:pointer"><span style="font-size:40px">👆</span></div>
       <div style="font-size:13px;font-weight:800;color:var(--mar);margin-top:10px">Entra con tu huella</div>
       <div style="font-size:10px;color:var(--gris);margin-top:2px">Toca el circulo para entrar</div>
-      <div style="text-align:center;border-top:1px solid var(--linea);padding-top:12px;margin-top:14px"><span onclick="APP.mostrarPin()" style="font-size:11px;color:var(--gris);font-weight:600;cursor:pointer">\u00bfProblemas? <span style="color:var(--mar-2);border-bottom:1px dashed var(--mar-2)">Usar mi PIN \u25be</span></span></div>
+      <div style="text-align:center;border-top:1px solid var(--linea);padding-top:12px;margin-top:14px"><span onclick="APP.mostrarPin()" style="font-size:11px;color:var(--gris);font-weight:600;cursor:pointer">¿Problemas? <span style="color:var(--mar-2);border-bottom:1px dashed var(--mar-2)">Usar mi PIN ▾</span></span></div>
     </div>
     <div id="pin-zona">
       <div class="pin-dots" id="pin-dots"><span></span><span></span><span></span><span></span></div>
       <div class="pad" id="pin-pad"></div>
-      <div id="link-volver-huella" onclick="APP.volverHuella()" style="display:none;text-align:center;margin-top:10px;font-size:12px;color:var(--coral);font-weight:700;cursor:pointer">\uD83D\uDC46 Volver a la huella</div>
+      <div id="link-volver-huella" onclick="APP.volverHuella()" style="display:none;text-align:center;margin-top:10px;font-size:12px;color:var(--coral);font-weight:700;cursor:pointer">👆 Volver a la huella</div>
     </div>
     <button id="btn-instalar" onclick="APP.instalarApp()" style="display:none;width:100%;margin-top:14px;border:1.5px solid var(--linea);background:var(--card);border-radius:14px;padding:13px;font-size:13px;font-weight:800;color:var(--mar);cursor:pointer">📲 Instalar app en este teléfono</button>
   </div>
@@ -328,7 +328,7 @@ select.inp{appearance:none;-webkit-appearance:none}
 <div class="screen" id="s-apertura">
   <div class="hd">
     <button class="salir" onclick="APP.logout()">Salir</button>
-    <button class="salir" style="right:76px" onclick="APP.miPerfil()">\uD83D\uDC64</button>
+    <button class="salir" style="right:76px" onclick="APP.miPerfil()">👤</button>
     <div class="mini" id="ap-fecha"></div>
     <h1>Apertura de Caja</h1>
     <div class="sub" id="ap-hola"></div>
@@ -371,7 +371,7 @@ select.inp{appearance:none;-webkit-appearance:none}
   <div class="hd" style="padding-bottom:44px">
     <button class="salir" onclick="APP.logout()">Salir</button>
     <button class="salir" style="right:76px" onclick="APP.renderApertura()">Turnos</button>
-    <button class="salir" style="right:145px" onclick="APP.miPerfil()">\uD83D\uDC64</button>
+    <button class="salir" style="right:145px" onclick="APP.miPerfil()">👤</button>
     <div class="mini" id="cj-mini"></div>
     <h1 id="cj-titulo">Turno</h1>
     <span class="badge-turno man" id="cj-badge"></span>
